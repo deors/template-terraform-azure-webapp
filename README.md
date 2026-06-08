@@ -42,6 +42,30 @@ terraform/
     ├── monitoring/    # Log Analytics Workspace
     ├── networking/    # VNet, Subnets, NSGs, Private DNS, Flow Logs
     └── webapp/        # App Service Plan, Web App, Identity, ACI, Private Endpoint, Autoscale, Diagnostics
+
+scripts/
+└── verify.sh          # Post-apply control-plane verification (see below)
+```
+
+---
+
+## Verification
+
+This template owns its own post-apply verification at the canonical path
+`scripts/verify.sh`. After `terraform apply`, the **workshop-platform-eng**
+orchestrator checks out the generated `{app-name}-infra` repository and runs
+this script, then surfaces the pass/fail counts. Because the assertions live
+next to the Terraform that defines the expectations (SKU, zone redundancy,
+worker count, TLS, staging slot, …), the orchestrator stays template-agnostic:
+any infra template that exposes `scripts/verify.sh` plugs in without changing
+the platform.
+
+The script reads `APP_NAME` and `ENVIRONMENT`, queries Azure with `az`, and
+exits non-zero if any check fails. To run it locally against a deployed
+environment (an `az login` session must be active):
+
+```bash
+APP_NAME=<app> ENVIRONMENT=<env> bash scripts/verify.sh
 ```
 
 ---
