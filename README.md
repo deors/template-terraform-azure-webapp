@@ -31,7 +31,7 @@ When used with the **workshop-platform-eng** provisioning workflow:
 
 ## Module Structure
 
-```
+``` text
 terraform/
 ├── environments/
 │   ├── dev/           # Development environment (P0v3, no HA, public endpoint open)
@@ -73,6 +73,7 @@ APP_NAME=<app> ENVIRONMENT=<env> bash scripts/verify.sh
 ## Environment-Specific Baselines
 
 ### Development (`dev/`)
+
 - **Compute**: P0v3 (smallest Premium v3 SKU, supports VNet integration)
 - **Instances**: 1 (no autoscale, no failover)
 - **Availability**: Single region, no zone redundancy
@@ -83,6 +84,7 @@ APP_NAME=<app> ENVIRONMENT=<env> bash scripts/verify.sh
 - **Checkov Baseline**: Relaxed (non-prod config skips failover/zone-redundancy checks)
 
 ### Staging (`staging/`)
+
 - **Compute**: P1v3 (standard production SKU)
 - **Instances**: 1–3 (autoscale on CPU/memory)
 - **Availability**: Single region, no zone redundancy
@@ -93,6 +95,7 @@ APP_NAME=<app> ENVIRONMENT=<env> bash scripts/verify.sh
 - **Checkov Baseline**: Relaxed (non-prod config skips failover/zone-redundancy checks)
 
 ### Production (`prod/`)
+
 - **Compute**: P2v3 (larger SKU)
 - **Instances**: 3–10 (autoscale on CPU/memory, minimum 3 for zone redundancy)
 - **Availability**: Zone redundant (Azure Availability Zones)
@@ -107,16 +110,19 @@ APP_NAME=<app> ENVIRONMENT=<env> bash scripts/verify.sh
 ## Security & Compliance
 
 ### Network Isolation
+
 - **Egress**: App Service VNet integration + NSGs restrict outbound to Azure services (HTTPS 443, DNS 53) only
 - **Inbound**: Private Endpoint + optional IP restrictions on public endpoint (dev only)
 - **Flow Logs**: Network traffic diagnostics logged to dedicate storage for compliance audit trails
 
 ### Identity & Access
+
 - **Managed Identity**: User-assigned identity per Web App for Azure service authentication (no secrets in config)
 - **RBAC**: Role assignments (AcrPull for container registry, Key Vault access for secrets)
 - **TLS**: Minimum 1.3 enforced on production; 1.2 or 1.3 in dev/staging
 
 ### Compliance
+
 - **Checkov**: Infrastructure security policy enforcement with environment-specific baselines (prod strict, dev/staging relaxed)
 - **Diagnostics**: Comprehensive logging to Log Analytics (HTTP logs, console logs, audit logs, platform logs)
 - **Encryption**: End-to-end TLS encryption (App Service end-to-end enabled via azapi provider)
@@ -126,6 +132,7 @@ APP_NAME=<app> ENVIRONMENT=<env> bash scripts/verify.sh
 ## Customization
 
 ### App Settings
+
 App-specific environment variables are passed via `app_settings` map in each environment's `.tfvars`. Example:
 
 ```hcl
@@ -136,6 +143,7 @@ app_settings = {
 ```
 
 ### Custom Domain
+
 Production supports custom domain binding with managed certificate:
 
 ```hcl
@@ -144,6 +152,7 @@ managed_certificate = true
 ```
 
 ### Container Registry
+
 Pull images from private container registry (GHCR, ACR, Docker Hub):
 
 ```hcl
@@ -152,6 +161,7 @@ container_image        = "myregistry.azurecr.io/myapp:v1.2.3"
 ```
 
 ### Key Vault Integration
+
 Optional integration for storing & referencing secrets:
 
 ```hcl
@@ -167,6 +177,7 @@ key_vault_secrets = {
 ## Terraform Workflow
 
 ### 1. Bootstrap Terraform State (one-time)
+
 ```bash
 ./scripts/bootstrap-tfstate.sh \
   --app-name myapp \
@@ -177,6 +188,7 @@ key_vault_secrets = {
 Creates a dedicated Azure Storage Account for remote state (idempotent).
 
 ### 2. Plan
+
 ```bash
 cd terraform/environments/dev
 terraform init \
@@ -188,6 +200,7 @@ terraform plan -var-file="terraform.tfvars"
 ```
 
 ### 3. Apply
+
 ```bash
 terraform apply tfplan
 ```
