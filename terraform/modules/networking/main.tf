@@ -99,6 +99,19 @@ resource "azurerm_network_security_group" "webapp_integration" {
     source_address_prefix      = "VirtualNetwork"
     destination_address_prefix = "Internet"
   }
+
+  # Corporate baseline: catch-all deny as last resort.
+  security_rule {
+    name                       = "deny-last-resort-outbound"
+    priority                   = 4096
+    direction                  = "Outbound"
+    access                     = "Deny"
+    protocol                   = "*"
+    source_port_range          = "*"
+    destination_port_range     = "*"
+    source_address_prefix      = "*"
+    destination_address_prefix = "*"
+  }
 }
 
 resource "azurerm_network_security_group" "private_endpoints" {
@@ -132,6 +145,19 @@ resource "azurerm_network_security_group" "private_endpoints" {
     source_port_range          = "*"
     destination_port_range     = "*"
     source_address_prefix      = "Internet"
+    destination_address_prefix = "*"
+  }
+
+  # Corporate baseline: catch-all deny as last resort.
+  security_rule {
+    name                       = "deny-last-resort-outbound"
+    priority                   = 4096
+    direction                  = "Outbound"
+    access                     = "Deny"
+    protocol                   = "*"
+    source_port_range          = "*"
+    destination_port_range     = "*"
+    source_address_prefix      = "*"
     destination_address_prefix = "*"
   }
 }
