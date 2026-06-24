@@ -313,12 +313,18 @@ resource "azurerm_app_service_certificate_binding" "this" {
 # End-to-end TLS encryption (front-end ↔ worker hop inside App Service).
 # Patches siteConfig.endToEndEncryptionEnabled = true on the Web App and the
 # staging slot. The hashicorp/azurerm provider does not yet expose this
-# preview attribute (see provider issue #25126), so we use azapi to PATCH
-# the existing resource Terraform created via azurerm_linux_web_app.
+# attribute (see provider issue #25126), so we use azapi to PATCH it.
+#
+# azapi_resource_action (not azapi_update_resource) is used here because
+# azurerm_linux_web_app resets endToEndEncryptionEnabled on every PUT it
+# issues. azapi_update_resource only re-applies when its own body changes,
+# so it would not recover from that reset. azapi_resource_action runs the
+# PATCH on every terraform apply, ensuring the setting is always enforced.
 # ──────────────────────────────────────────────────────────────────────────────
-resource "azapi_update_resource" "end_to_end_encryption" {
+resource "azapi_resource_action" "end_to_end_encryption" {
   type        = "Microsoft.Web/sites@2024-04-01"
   resource_id = azurerm_linux_web_app.this.id
+  method      = "PATCH"
 
   body = {
     properties = {
@@ -329,10 +335,11 @@ resource "azapi_update_resource" "end_to_end_encryption" {
   }
 }
 
-resource "azapi_update_resource" "end_to_end_encryption_slot" {
+resource "azapi_resource_action" "end_to_end_encryption_slot" {
   count       = var.deployment_slot_enabled ? 1 : 0
   type        = "Microsoft.Web/sites/slots@2024-04-01"
   resource_id = azurerm_linux_web_app_slot.staging[0].id
+  method      = "PATCH"
 
   body = {
     properties = {
