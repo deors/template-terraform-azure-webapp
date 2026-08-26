@@ -24,6 +24,12 @@ variable "container_registry_url" {
   default     = ""
 }
 
+variable "health_check_path" {
+  description = "Path the App Service health check polls. Defaults to /health. Set to / when using a placeholder container image that has no dedicated health endpoint."
+  type        = string
+  default     = "/health"
+}
+
 variable "app_settings" {
   description = "Additional application settings / environment variables"
   type        = map(string)

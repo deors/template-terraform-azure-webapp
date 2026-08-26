@@ -75,5 +75,5 @@ module "webapp" {
   deployment_slot_enabled = true
 
   minimum_tls_version = "1.3"
-  health_check_path   = "/health"
+  health_check_path   = var.health_check_path
 }

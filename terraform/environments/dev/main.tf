@@ -87,5 +87,5 @@ module "webapp" {
   autoscale_enabled       = false
   deployment_slot_enabled = false
 
-  health_check_path = "/health"
+  health_check_path = var.health_check_path
 }

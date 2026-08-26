@@ -4,6 +4,10 @@ app_name               = "myapp"
 container_image        = "myregistry.azurecr.io/myapp:latest"
 container_registry_url = "myregistry.azurecr.io"
 
+# health_check_path defaults to "/health". Set to "/" when using a placeholder
+# container image (e.g. nginx) that has no dedicated health endpoint.
+# health_check_path = "/"
+
 app_settings = {
   ASPNETCORE_ENVIRONMENT = "Staging"
 }

@@ -72,5 +72,5 @@ module "webapp" {
   # Staging slot for pre-swap validation
   deployment_slot_enabled = true
 
-  health_check_path = "/health"
+  health_check_path = var.health_check_path
 }
