@@ -178,11 +178,27 @@ key_vault_secrets = {
 
 ### 1. Bootstrap Terraform State (one-time)
 
+> **State bootstrapping is a cross-cutting concern owned by the orchestrator, not by individual
+> infrastructure templates.** The bootstrap script lives in the **workshop-platform-eng**
+> repository and must be run from there. Each template is deliberately free of bootstrap logic —
+> the orchestrator is the single place to update when storage naming conventions, retention
+> policies, or cloud targets change.
+
+Export shared variables first — these are reused in every subsequent command:
+
+```bash
+export APP_NAME=myapp
+export SUBSCRIPTION_ID=<GUID>
+export LOCATION=westeurope   # set your target Azure region explicitly
+```
+
+From the **workshop-platform-eng** repository:
+
 ```bash
 ./scripts/bootstrap-tfstate.sh \
-  --app-name myapp \
-  --subscription-id <GUID> \
-  --location westeurope
+  --app-name $APP_NAME \
+  --subscription-id $SUBSCRIPTION_ID \
+  --location $LOCATION
 ```
 
 Creates a dedicated Azure Storage Account for remote state (idempotent).
@@ -192,17 +208,17 @@ Creates a dedicated Azure Storage Account for remote state (idempotent).
 ```bash
 cd terraform/environments/dev
 terraform init \
-  -backend-config="resource_group_name=rg-tfstate-myapp" \
-  -backend-config="storage_account_name=sttfmyapp<sub-short>" \
+  -backend-config="resource_group_name=rg-tfstate-$APP_NAME" \
+  -backend-config="storage_account_name=sttf$APP_NAME<sub-short>" \
   -backend-config="container_name=tfstate" \
   -backend-config="key=dev/terraform.tfstate"
-terraform plan -var-file="terraform.tfvars"
+terraform plan -var-file="terraform.tfvars" -var="location=$LOCATION"
 ```
 
 ### 3. Apply
 
 ```bash
-terraform apply tfplan
+terraform apply -var-file="terraform.tfvars" -var="location=$LOCATION"
 ```
 
 ---

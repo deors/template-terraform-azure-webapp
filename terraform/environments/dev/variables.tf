@@ -4,9 +4,8 @@ variable "subscription_id" {
 }
 
 variable "location" {
-  description = "Azure region"
+  description = "Azure region for all resources. No default — must be set explicitly to avoid accidental cross-region deployments."
   type        = string
-  default     = "westeurope"
 }
 
 variable "app_name" {

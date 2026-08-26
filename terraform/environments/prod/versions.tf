@@ -16,7 +16,7 @@ terraform {
   }
 
   # All backend values are injected at init time via -backend-config flags.
-  # Run scripts/bootstrap-tfstate.sh (or the bootstrap-tfstate workflow) first.
+  # Run scripts/bootstrap-tfstate.sh from the workshop-platform-eng repository first.
   backend "azurerm" {}
 }
 
