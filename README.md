@@ -52,7 +52,7 @@ scripts/
 ## Verification
 
 This template owns its own post-apply verification at the canonical path
-`scripts/verify.sh`. After `terraform apply`, the **workshop-platform-eng**
+`scripts/verify.sh`. After `tofu apply`, the **workshop-platform-eng**
 orchestrator checks out the generated `{app-name}-infra` repository and runs
 this script, then surfaces the pass/fail counts. Because the assertions live
 next to the Terraform that defines the expectations (SKU, zone redundancy,
@@ -60,9 +60,29 @@ worker count, TLS, staging slot, …), the orchestrator stays template-agnostic:
 any infra template that exposes `scripts/verify.sh` plugs in without changing
 the platform.
 
-The script reads `APP_NAME` and `ENVIRONMENT`, queries Azure with `az`, and
-exits non-zero if any check fails. To run it locally against a deployed
-environment (an `az login` session must be active):
+### Interface
+
+| Variable | Required | Purpose |
+|---|---|---|
+| `APP_NAME` | Yes | Application name; used as the resource-name prefix |
+| `ENVIRONMENT` | Yes | One of `dev`, `staging`, `prod` |
+| `CUSTOM_DOMAIN` | No | Custom hostname bound to the Web App. When set, adds hostname-binding, certificate, and end-to-end HTTPS checks. The HTTPS check runs for `dev` only — `staging` and `prod` are Private Endpoint–only. |
+| `GITHUB_STEP_SUMMARY` | No | Path appended with a Markdown summary (set automatically by GitHub Actions) |
+| `VERIFY_SUMMARY_FILE` | No | Machine-readable `key=value` summary path. Defaults to `/tmp/verify-summary.txt`. |
+
+### Exit codes
+
+| Code | Meaning |
+|---|---|
+| `0` | Every check passed |
+| `1` | Checks ran; at least one failed |
+| `2` | Invalid invocation — a required variable is missing or `ENVIRONMENT` is not recognised. No checks ran. |
+
+All three exit paths write the summary file. A caller can always parse it and never has to special-case "the script died before producing output".
+
+### Running locally
+
+An active `az login` session is required:
 
 ```bash
 APP_NAME=<app> ENVIRONMENT=<env> bash scripts/verify.sh
@@ -129,6 +149,18 @@ APP_NAME=<app> ENVIRONMENT=<env> bash scripts/verify.sh
 
 ---
 
+## Resource Group
+
+Each environment gets its own resource group named `rg-<app_name>-<env>` (for example `rg-myapp-dev`). The resource group is the containment boundary for every resource this template creates — the VNet, App Service Plan, Web App, Private Endpoint, Log Analytics Workspace, Application Insights, NSGs, Private DNS Zone, and VNet Flow Log storage.
+
+Practical implications:
+
+- **Deletion protection**: the `azurerm` provider is configured with `prevent_deletion_if_contains_resources = true`. Attempting to delete the resource group while it still contains resources will fail, preventing accidental teardown. Use `tofu destroy` to remove resources in dependency order first.
+- **Cost visibility**: because every resource lands in the same group, Azure Cost Management can show per-environment spend by filtering on the resource group name.
+- **RBAC scope**: assigning a role at the resource group level grants it to all resources inside. This is the recommended scope for environment-level access (for example giving a team read access to `rg-myapp-staging`).
+
+---
+
 ## Customization
 
 ### App Settings
@@ -176,6 +208,24 @@ key_vault_secrets = {
 
 ## Terraform Workflow
 
+### Prerequisites
+
+The following tools must be installed and on `$PATH`:
+
+| Tool | Purpose |
+|---|---|
+| [`az`](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli) | Azure CLI — resource queries and auth |
+| [`tofu`](https://opentofu.org/docs/intro/install/) | OpenTofu — plan, apply, destroy |
+| [`checkov`](https://www.checkov.io/2.Basics/Installing%20Checkov.html) | Infrastructure policy enforcement |
+| [`jq`](https://jqlang.github.io/jq/) | JSON processing in `scripts/verify.sh` |
+
+Authenticate before running any command:
+
+```bash
+az login
+az account set --subscription $SUBSCRIPTION_ID
+```
+
 ### 1. Bootstrap Terraform State (one-time)
 
 > **State bootstrapping is a cross-cutting concern owned by the orchestrator, not by individual
@@ -195,6 +245,7 @@ export LOCATION=westeurope   # set your target Azure region explicitly
 From the **workshop-platform-eng** repository:
 
 ```bash
+cd /path/to/workshop-platform-eng
 ./scripts/bootstrap-tfstate.sh \
   --app-name $APP_NAME \
   --subscription-id $SUBSCRIPTION_ID \
@@ -203,22 +254,52 @@ From the **workshop-platform-eng** repository:
 
 Creates a dedicated Azure Storage Account for remote state (idempotent).
 
-### 2. Plan
+### 2. Security scan (Checkov)
+
+Run before `tofu plan` to catch policy violations before any state is touched.
+Dev and staging use the relaxed baseline; prod uses the strict one.
+
+```bash
+# dev / staging
+checkov -d terraform/environments/dev --config-file .checkov.nonprod.yaml
+
+# prod
+checkov -d terraform/environments/prod --config-file .checkov.yaml
+```
+
+### 3. Init
 
 ```bash
 cd terraform/environments/dev
-terraform init \
+tofu init \
   -backend-config="resource_group_name=rg-tfstate-$APP_NAME" \
-  -backend-config="storage_account_name=sttf$APP_NAME<sub-short>" \
+  -backend-config="storage_account_name=sttf${APP_NAME}<sub-short>" \
   -backend-config="container_name=tfstate" \
   -backend-config="key=dev/terraform.tfstate"
-terraform plan -var-file="terraform.tfvars" -var="location=$LOCATION"
 ```
 
-### 3. Apply
+### 4. Plan
 
 ```bash
-terraform apply -var-file="terraform.tfvars" -var="location=$LOCATION"
+tofu plan -var-file="terraform.tfvars" -var="location=$LOCATION" -out=tfplan
+```
+
+### 5. Apply
+
+```bash
+tofu apply tfplan
+```
+
+### 6. Verify
+
+```bash
+APP_NAME=$APP_NAME ENVIRONMENT=dev bash scripts/verify.sh
+```
+
+### 7. Destroy (teardown)
+
+```bash
+tofu destroy -var-file="terraform.tfvars" -var="location=$LOCATION"
 ```
 
 ---
