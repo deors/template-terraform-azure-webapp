@@ -15,13 +15,14 @@
 #   ENVIRONMENT  one of: dev, staging, prod
 #
 # Optional env:
-#   CUSTOM_DOMAIN          custom hostname bound to the Web App. When set, adds
-#                          hostname binding, certificate and end-to-end HTTPS
-#                          checks. The HTTPS reachability check additionally
-#                          requires a public endpoint, so it runs for dev only —
-#                          staging and prod use Private Endpoint by design.
 #   GITHUB_STEP_SUMMARY    appended with a markdown summary when set
 #   VERIFY_SUMMARY_FILE    machine-readable summary path (default /tmp/verify-summary.txt)
+#
+# The app is served on its default *.azurewebsites.net hostname, covered by
+# Azure's platform-managed wildcard certificate, so this script takes no domain
+# or certificate input: there is no certificate for the template to manage. Dev
+# is probed over its public endpoint; staging and prod are Private Endpoint only
+# and are verified through the control plane alone.
 #
 # Exit codes:
 #   0  every check passed
@@ -117,11 +118,6 @@ require_env() {
 require_env APP_NAME    "application name, used as the resource name prefix"
 require_env ENVIRONMENT "one of: ${VALID_ENVIRONMENTS// /, }"
 
-# CUSTOM_DOMAIN is optional: absent means hostname binding, certificate, and
-# HTTPS reachability groups are skipped, which is correct for deployments
-# without a custom domain.
-CUSTOM_DOMAIN="${CUSTOM_DOMAIN:-}"
-
 if [[ -n "${ENVIRONMENT:-}" && " ${VALID_ENVIRONMENTS} " != *" ${ENVIRONMENT} "* ]]; then
   FAILURES+=("ENVIRONMENT must be one of: ${VALID_ENVIRONMENTS// /, } — got '${ENVIRONMENT}'")
   echo "  ✗ ENVIRONMENT must be one of: ${VALID_ENVIRONMENTS// /, } — got '${ENVIRONMENT}'" >&2
@@ -139,17 +135,28 @@ RG="rg-${PREFIX}"
 ASP="asp-${PREFIX}"
 APP="app-${PREFIX}"
 PE="pe-${PREFIX}"
+LAW="log-${PREFIX}"
+APPI="appi-${PREFIX}"
+AUTOSCALE="autoscale-${PREFIX}"
+VNET="vnet-${PREFIX}"
+# The flow-log storage account name is derived the same way the networking
+# module derives it: "stflow" + the prefix with dashes stripped, lowercased and
+# truncated to the 24-character limit Azure imposes on storage account names.
+FLOW_SA=$(echo "stflow${PREFIX//-/}" | tr '[:upper:]' '[:lower:]' | cut -c1-24)
 
 # ── Per-environment expectations ──────────────────────────────────────────────
 case "$ENVIRONMENT" in
   dev)
     EXPECTED_SKU=P0v3; EXPECTED_ZONE=false; EXPECTED_WORKERS=1; EXPECTED_SLOT=false
+    EXPECTED_RETENTION=30; EXPECTED_AUTOSCALE=false; EXPECTED_AUTOSCALE_MIN=1
     PUBLIC_ENDPOINT=true ;;
   staging)
     EXPECTED_SKU=P1v3; EXPECTED_ZONE=false; EXPECTED_WORKERS=1; EXPECTED_SLOT=true
+    EXPECTED_RETENTION=60; EXPECTED_AUTOSCALE=true;  EXPECTED_AUTOSCALE_MIN=1
     PUBLIC_ENDPOINT=false ;;
   prod)
     EXPECTED_SKU=P2v3; EXPECTED_ZONE=true;  EXPECTED_WORKERS=3; EXPECTED_SLOT=true
+    EXPECTED_RETENTION=90; EXPECTED_AUTOSCALE=true;  EXPECTED_AUTOSCALE_MIN=3
     PUBLIC_ENDPOINT=false ;;
   *)
     # Unreachable — ENVIRONMENT is validated above. Kept so that adding a value
@@ -162,6 +169,7 @@ case "$ENVIRONMENT" in
 esac
 
 echo "Verifying $APP_NAME / $ENVIRONMENT (RG=$RG)"
+echo "  Plan: $ASP  App: $APP  VNet: $VNET  Workspace: $LAW"
 
 # ── Resource group ────────────────────────────────────────────────────────────
 echo "::group::Resource group"
@@ -212,52 +220,88 @@ if [[ -n "$WA_ID" ]]; then
 fi
 echo "::endgroup::"
 
+# ── Log Analytics ─────────────────────────────────────────────────────────────
+# Retention is asserted against the per-environment expectation (30/60/90) —
+# a workspace that exists but silently fell back to the 30-day default would
+# otherwise pass unnoticed in staging and prod.
+echo "::group::Log Analytics"
+LAW_JSON=$(az monitor log-analytics workspace show -n "$LAW" -g "$RG" -o json 2>/dev/null || echo '{}')
+assert_eq "Workspace provisioningState" "$(jq -r '.provisioningState // "missing"' <<<"$LAW_JSON")" "Succeeded"
+assert_eq "Workspace retentionInDays"   "$(jq -r '.retentionInDays   // 0'         <<<"$LAW_JSON")" "$EXPECTED_RETENTION"
+echo "::endgroup::"
+
+# ── Application Insights ──────────────────────────────────────────────────────
+echo "::group::Application Insights"
+APPI_JSON=$(az monitor app-insights component show -a "$APPI" -g "$RG" -o json 2>/dev/null || echo '{}')
+assert_not_empty "App Insights instrumentation key" "$(jq -r '.instrumentationKey // "missing"' <<<"$APPI_JSON")"
+assert_eq "App Insights workspace linked" "$(jq -r 'if .workspaceResourceId then "linked" else "unlinked" end' <<<"$APPI_JSON")" "linked"
+echo "::endgroup::"
+
+# ── Autoscale (staging + prod only) ───────────────────────────────────────────
+echo "::group::Autoscale"
+if [[ "$EXPECTED_AUTOSCALE" == true ]]; then
+  AS_JSON=$(az monitor autoscale show -n "$AUTOSCALE" -g "$RG" -o json 2>/dev/null || echo '{}')
+  assert_eq "Autoscale enabled"     "$(jq -r '.enabled // false'                        <<<"$AS_JSON")" "true"
+  assert_ge "Autoscale min capacity" "$(jq -r '.profiles[0].capacity.minimum // 0'        <<<"$AS_JSON")" "$EXPECTED_AUTOSCALE_MIN"
+  assert_ge "Autoscale rules"        "$(jq -r '(.profiles[0].rules // []) | length'       <<<"$AS_JSON")" 2
+else
+  pass "Autoscale disabled (not expected for $ENVIRONMENT)"
+fi
+echo "::endgroup::"
+
+# ── Networking ────────────────────────────────────────────────────────────────
+# The flow log itself lives in the Network Watcher resource group, which this
+# script cannot address without knowing the region. Asserting the VNet and the
+# flow-log storage account — both in the app resource group — verifies the same
+# plumbing without needing a region input.
+echo "::group::Networking"
+VNET_JSON=$(az network vnet show -n "$VNET" -g "$RG" -o json 2>/dev/null || echo '{}')
+assert_eq "VNet provisioningState" "$(jq -r '.provisioningState // "missing"' <<<"$VNET_JSON")" "Succeeded"
+assert_ge "VNet subnets"           "$(jq -r '(.subnets // []) | length'       <<<"$VNET_JSON")" 2
+FLOW_JSON=$(az storage account show -n "$FLOW_SA" -g "$RG" -o json 2>/dev/null || echo '{}')
+assert_eq "Flow-log storage provisioningState" "$(jq -r '.provisioningState // "missing"' <<<"$FLOW_JSON")" "Succeeded"
+echo "::endgroup::"
+
 # ── Staging slot (staging + prod only) ────────────────────────────────────────
+# The group is always emitted, even when no slot is expected, so a caller
+# reading the output never has to infer whether a check was skipped or lost.
+echo "::group::Staging slot"
 if [[ "$EXPECTED_SLOT" == true ]]; then
-  echo "::group::Staging slot"
   SLOT_STATE=$(az webapp deployment slot list -n "$APP" -g "$RG" \
     --query "[?name=='staging'].state | [0]" -o tsv 2>/dev/null || echo "missing")
   assert_eq "Staging slot state" "${SLOT_STATE:-missing}" "Running"
-  echo "::endgroup::"
+else
+  pass "Staging slot not provisioned (not expected for $ENVIRONMENT)"
 fi
+echo "::endgroup::"
 
-# ── Custom domain (optional) ──────────────────────────────────────────────────
-# Skipped entirely when CUSTOM_DOMAIN is not set.
-if [[ -n "$CUSTOM_DOMAIN" ]]; then
-  echo "::group::Custom domain"
-
-  # Hostname binding — must exist with SniEnabled SSL state
-  BINDING_JSON=$(az webapp config hostname list --webapp-name "$APP" -g "$RG" \
-    --query "[?name=='$CUSTOM_DOMAIN'] | [0]" -o json 2>/dev/null || echo '{}')
-  BINDING_SSL=$(jq -r '.sslState // "missing"' <<<"$BINDING_JSON")
-  assert_eq "Custom hostname SSL state" "$BINDING_SSL" "SniEnabled"
-
-  # Managed certificate — must exist and must not be expired
-  CERT_JSON=$(az webapp config ssl list -g "$RG" \
-    --query "[?subjectName=='$CUSTOM_DOMAIN'] | [0]" -o json 2>/dev/null || echo '{}')
-  CERT_THUMBPRINT=$(jq -r '.thumbprint // "missing"' <<<"$CERT_JSON")
-  assert_not_empty "Managed certificate thumbprint" "$CERT_THUMBPRINT"
-
-  EXPIRY_DATE=$(jq -r '.expirationDate // "missing"' <<<"$CERT_JSON" | cut -c1-10)
-  TODAY=$(date -u +%Y-%m-%d)
-  if [[ "$EXPIRY_DATE" > "$TODAY" ]]; then
-    pass "Managed certificate not expired (expires $EXPIRY_DATE)"
-  else
-    fail "Managed certificate expired or expiry unknown (expiry=$EXPIRY_DATE)"
-  fi
-
-  # End-to-end HTTPS reachability — dev only. Staging and prod expose the Web
-  # App through Private Endpoint only, so an HTTP request from a runner with no
-  # VNet access will correctly fail and must not be asserted.
-  if [[ "$PUBLIC_ENDPOINT" == "true" ]]; then
-    HTTP_CODE=$(curl -s --max-time 10 -o /dev/null -w "%{http_code}" "https://$CUSTOM_DOMAIN/" 2>/dev/null || echo "000")
-    assert_eq "HTTPS $CUSTOM_DOMAIN" "$HTTP_CODE" "200"
-  else
-    pass "HTTPS reachability skipped ($ENVIRONMENT uses Private Endpoint — no public access)"
-  fi
-
-  echo "::endgroup::"
+# ── Public endpoint (dev only) ────────────────────────────────────────────────
+# The app is served on its default *.azurewebsites.net hostname, which Azure
+# covers with a platform-managed wildcard certificate — there is no certificate
+# for this template to provision, bind, or renew, so nothing about certificate
+# lifecycle is asserted here. What the request does prove is that the wildcard
+# chain validates: curl verifies it by default, so a TLS failure surfaces as a
+# connection error (000) rather than a status code.
+#
+# Dev keeps its public endpoint open for exactly this reason. Staging and prod
+# are reachable only through the Private Endpoint, so a request from a runner
+# outside the VNet would fail for a correct configuration — those environments
+# rely on the control-plane assertions above instead.
+echo "::group::Public endpoint"
+HOSTNAME_DEFAULT=$(jq -r '.defaultHostName // ""' <<<"$WA_JSON")
+if [[ "$PUBLIC_ENDPOINT" != "true" ]]; then
+  pass "Public endpoint closed ($ENVIRONMENT is Private Endpoint only — no public probe)"
+elif [[ -z "$HOSTNAME_DEFAULT" ]]; then
+  fail "Default hostname: not resolvable from the Web App resource, cannot probe public endpoint"
+else
+  # curl already prints "000" to stdout when the connection fails, so the
+  # fallback must replace that value rather than be appended to it — piping
+  # through `|| echo 000` would yield the confusing "000000".
+  HTTP_CODE=$(curl -s --max-time 15 -o /dev/null -w "%{http_code}" \
+    "https://${HOSTNAME_DEFAULT}/" 2>/dev/null) || HTTP_CODE="000"
+  assert_eq "HTTPS https://${HOSTNAME_DEFAULT}/" "${HTTP_CODE:-000}" "200"
 fi
+echo "::endgroup::"
 
 # ── Summary ───────────────────────────────────────────────────────────────────
 emit_summary
