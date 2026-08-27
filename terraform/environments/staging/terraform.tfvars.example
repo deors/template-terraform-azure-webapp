@@ -1,13 +1,19 @@
-subscription_id        = "00000000-0000-0000-0000-000000000000"
-location               = "westeurope"
-app_name               = "myapp"
-container_image        = "myregistry.azurecr.io/myapp:latest"
-container_registry_url = "myregistry.azurecr.io"
+subscription_id = "00000000-0000-0000-0000-000000000000"
+location        = "westeurope"
+app_name        = "myapp"
+
+# Staging runs a real, versioned application image — pin a tag rather than
+# tracking :latest so a swap is reproducible.
+container_image        = "mcr.microsoft.com/azuredocs/aci-helloworld:latest"
+container_registry_url = "mcr.microsoft.com"
 
 # health_check_path defaults to "/health". Set to "/" when using a placeholder
-# container image (e.g. nginx) that has no dedicated health endpoint.
+# container image that has no dedicated health endpoint.
 # health_check_path = "/"
 
 app_settings = {
   ASPNETCORE_ENVIRONMENT = "Staging"
+
+  # Set WEBSITES_PORT when the container listens on a port other than 80.
+  # WEBSITES_PORT = "8080"
 }

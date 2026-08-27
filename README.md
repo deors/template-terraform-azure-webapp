@@ -66,7 +66,6 @@ the platform.
 |---|---|---|
 | `APP_NAME` | Yes | Application name; used as the resource-name prefix |
 | `ENVIRONMENT` | Yes | One of `dev`, `staging`, `prod` |
-| `CUSTOM_DOMAIN` | No | Custom hostname bound to the Web App. When set, adds hostname-binding, certificate, and end-to-end HTTPS checks. The HTTPS check runs for `dev` only — `staging` and `prod` are Private Endpoint–only. |
 | `GITHUB_STEP_SUMMARY` | No | Path appended with a Markdown summary (set automatically by GitHub Actions) |
 | `VERIFY_SUMMARY_FILE` | No | Machine-readable `key=value` summary path. Defaults to `/tmp/verify-summary.txt`. |
 
@@ -80,6 +79,16 @@ the platform.
 
 All three exit paths write the summary file. A caller can always parse it and never has to special-case "the script died before producing output".
 
+### What it checks
+
+Eleven groups: resource group, App Service Plan (SKU, zone redundancy, worker count), Web App (state, HTTPS-only, managed identity, TLS, FTPS, HTTP/2), Private Endpoint, diagnostic settings, Log Analytics (including per-environment retention: 30/60/90 days), Application Insights, autoscale, networking (VNet, subnets, flow-log storage), staging slot, and public endpoint.
+
+All but the last are control-plane assertions. The **public endpoint** group is the one that sends real traffic: it issues an HTTPS `GET` against the default `*.azurewebsites.net` hostname and expects `200`. Because `curl` validates the certificate chain by default, this doubles as a check that Azure's wildcard certificate is serving correctly — a TLS failure surfaces as `000`, not a status code.
+
+That probe runs for **dev only**, which keeps its public endpoint open for exactly this purpose. Staging and prod are reachable only through the Private Endpoint, so a request from a runner outside the VNet would fail on a perfectly healthy deployment; those environments are verified through the control plane alone and the group reports a pass explaining the skip.
+
+Groups that don't apply to an environment always report a passing check saying so — a skipped group never disappears silently from the output.
+
 ### Running locally
 
 An active `az login` session is required:
@@ -92,38 +101,22 @@ APP_NAME=<app> ENVIRONMENT=<env> bash scripts/verify.sh
 
 ## Environment-Specific Baselines
 
-### Development (`dev/`)
+Every row below genuinely differs by environment. Settings that are identical
+everywhere — TLS version, Private Endpoint, managed identity, tagging,
+encryption — are documented once under
+[Security & Compliance](#security--compliance) rather than repeated per column.
 
-- **Compute**: P0v3 (smallest Premium v3 SKU, supports VNet integration)
-- **Instances**: 1 (no autoscale, no failover)
-- **Availability**: Single region, no zone redundancy
-- **Networking**: Public endpoint open (for GitHub Actions smoke tests) + Private Endpoint
-- **Log Retention**: 30 days
-- **Staging Slot**: Disabled
-- **Deployment Slot**: N/A
-- **Checkov Baseline**: Relaxed (non-prod config skips failover/zone-redundancy checks)
-
-### Staging (`staging/`)
-
-- **Compute**: P1v3 (standard production SKU)
-- **Instances**: 1–3 (autoscale on CPU/memory)
-- **Availability**: Single region, no zone redundancy
-- **Networking**: Private Endpoint only (no public access)
-- **Log Retention**: 60 days
-- **Staging Slot**: Enabled (for pre-swap validation)
-- **Deployment Slot**: N/A
-- **Checkov Baseline**: Relaxed (non-prod config skips failover/zone-redundancy checks)
-
-### Production (`prod/`)
-
-- **Compute**: P2v3 (larger SKU)
-- **Instances**: 3–10 (autoscale on CPU/memory, minimum 3 for zone redundancy)
-- **Availability**: Zone redundant (Azure Availability Zones)
-- **Networking**: Private Endpoint only (public access disabled)
-- **Log Retention**: 90 days
-- **Staging Slot**: Enabled (mandatory for blue/green deployments)
-- **Deployment Slot**: Enabled for zero-downtime swaps
-- **Checkov Baseline**: Strict (prod config enforces failover instances, zone redundancy, PE-only access)
+| | `dev` | `staging` | `prod` |
+|---|---|---|---|
+| **Compute** | P0v3 — smallest Premium v3 SKU that supports VNet integration | P1v3 | P2v3 |
+| **Instances** | 1 fixed, no autoscale | Autoscale 1–3 on CPU/memory | Autoscale 3–10 (min 3 for zone redundancy) |
+| **Availability** | Single region, no zone redundancy | Single region, no zone redundancy | Zone redundant across Availability Zones |
+| **Public endpoint** | Open — HTTP smoke tests from GitHub-hosted runners, which have no fixed IP and are not in the VNet | Closed | Closed |
+| **VNet CIDR** | `10.10.0.0/16` | `10.20.0.0/16` | `10.30.0.0/16` |
+| **Log retention** | 30 days | 60 days | 90 days |
+| **Deployment slot** | Disabled | Enabled — pre-swap validation | Enabled — zero-downtime blue/green swaps |
+| **Post-apply probe** | HTTPS `GET` on the default hostname, expects `200` | Control plane only | Control plane only |
+| **Checkov baseline** | `.checkov.nonprod.yaml` (relaxed) | `.checkov.nonprod.yaml` (relaxed) | `.checkov.yaml` (strict) |
 
 ---
 
@@ -139,7 +132,7 @@ APP_NAME=<app> ENVIRONMENT=<env> bash scripts/verify.sh
 
 - **Managed Identity**: User-assigned identity per Web App for Azure service authentication (no secrets in config)
 - **RBAC**: Role assignments (AcrPull for container registry, Key Vault access for secrets)
-- **TLS**: Minimum 1.3 enforced on production; 1.2 or 1.3 in dev/staging
+- **TLS**: 1.3 in every environment. The `webapp` module defaults `minimum_tls_version` to `"1.3"` and carries a validation block rejecting anything other than `1.2` or `1.3`, so the floor cannot be silently weakened per environment. Production passes the value explicitly as documentation of intent; dev and staging inherit the same `1.3` default. `scripts/verify.sh` re-asserts `minTlsVersion = 1.3` against the deployed app in all three environments.
 
 ### Compliance
 
@@ -159,6 +152,14 @@ Practical implications:
 - **Cost visibility**: because every resource lands in the same group, Azure Cost Management can show per-environment spend by filtering on the resource group name.
 - **RBAC scope**: assigning a role at the resource group level grants it to all resources inside. This is the recommended scope for environment-level access (for example giving a team read access to `rg-myapp-staging`).
 
+The resource group is a containment boundary, so it answers "what is in this environment?" but not "what does this application own across environments?" — those live in three separate groups. Every resource also carries the `application`, `environment`, `managed-by`, and `platform` tags, so use a tag query to span them:
+
+```bash
+az resource list --tag application=$APP_NAME -o table
+```
+
+State storage is deliberately outside these groups: the bootstrap script creates `rg-tfstate-<app>`, which must survive a `tofu destroy` of any environment.
+
 ---
 
 ## Customization
@@ -174,14 +175,11 @@ app_settings = {
 }
 ```
 
-### Custom Domain
+### Hostnames and TLS
 
-Production supports custom domain binding with managed certificate:
+Every environment serves on its Azure-assigned hostname, `app-<app>-<env>.azurewebsites.net`, which Azure covers with a platform-managed wildcard certificate for `*.azurewebsites.net`. **There is no certificate for this template to provision, bind, or renew** — TLS works out of the box in all three environments, and nothing expires under your ownership. This is the configuration the template is built and verified against.
 
-```hcl
-custom_domain = "myapp.example.com"
-managed_certificate = true
-```
+Production optionally accepts a `custom_domain` for a vanity hostname. It is left off by default; the wildcard-covered default hostname is the expected path.
 
 ### Container Registry
 
@@ -242,6 +240,8 @@ export SUBSCRIPTION_ID=<GUID>
 export LOCATION=westeurope   # set your target Azure region explicitly
 ```
 
+> **`location` is required by design and has no default.** Azure resource groups are regional and every resource in them inherits that placement, so a forgotten region would not fail — it would deploy the whole stack to whichever region the template happened to default to, and `tofu plan` would report no problem. Removing the default converts a silent misdeployment into an upfront error. Pass it explicitly on every `plan`, `apply`, and `destroy`.
+
 From the **workshop-platform-eng** repository:
 
 ```bash
@@ -257,7 +257,10 @@ Creates a dedicated Azure Storage Account for remote state (idempotent).
 ### 2. Security scan (Checkov)
 
 Run before `tofu plan` to catch policy violations before any state is touched.
-Dev and staging use the relaxed baseline; prod uses the strict one.
+Dev and staging use the relaxed baseline; prod uses the strict one. Scan
+`terraform/modules` too — the environment directories only cover the root
+configuration, so a violation introduced in shared module code would otherwise
+go unscanned.
 
 ```bash
 # dev / staging
@@ -265,7 +268,14 @@ checkov -d terraform/environments/dev --config-file .checkov.nonprod.yaml
 
 # prod
 checkov -d terraform/environments/prod --config-file .checkov.yaml
+
+# shared modules
+checkov -d terraform/modules --config-file .checkov.yaml
 ```
+
+Every skip in both config files carries a stated reason, and `.checkov.yaml`
+also lists the checks that pass natively so it is clear what is enforced by
+module code rather than waived.
 
 ### 3. Init
 
@@ -283,6 +293,16 @@ tofu init \
 ```bash
 tofu plan -var-file="terraform.tfvars" -var="location=$LOCATION" -out=tfplan
 ```
+
+Review the plan output before applying — confirm the region on the resource
+group is the one you intended, and that the resource count matches expectations
+for the environment.
+
+The committed `terraform.tfvars.example` for `dev` deploys a public placeholder
+image (`mcr.microsoft.com/azuredocs/aci-helloworld`) with `health_check_path = "/"`,
+so the template can be applied and verified end to end before a real application
+image exists. Swap `container_image`, `container_registry_url`, and
+`health_check_path` for your own app's values when moving past validation.
 
 ### 5. Apply
 

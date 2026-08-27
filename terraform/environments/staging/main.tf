@@ -9,12 +9,18 @@ locals {
   }
 }
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Resource Group
+# ──────────────────────────────────────────────────────────────────────────────
 resource "azurerm_resource_group" "this" {
   name     = "rg-${var.app_name}-${local.environment}"
   location = var.location
   tags     = local.common_tags
 }
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Monitoring (Log Analytics)
+# ──────────────────────────────────────────────────────────────────────────────
 module "monitoring" {
   source = "../../modules/monitoring"
 
@@ -26,6 +32,9 @@ module "monitoring" {
   log_analytics_retention_days = 60
 }
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Networking
+# ──────────────────────────────────────────────────────────────────────────────
 module "networking" {
   source = "../../modules/networking"
 
@@ -39,6 +48,9 @@ module "networking" {
   private_endpoint_subnet_cidr   = "10.20.2.0/24"
 }
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Web App
+# ──────────────────────────────────────────────────────────────────────────────
 module "webapp" {
   source = "../../modules/webapp"
 
@@ -57,10 +69,15 @@ module "webapp" {
 
   app_settings = var.app_settings
 
-  virtual_network_subnet_id  = module.networking.webapp_integration_subnet_id
-  private_endpoint_subnet_id = module.networking.private_endpoint_subnet_id
-  private_dns_zone_id        = module.networking.webapp_private_dns_zone_id
+  # Networking – VNet integration + private endpoint, public endpoint closed.
+  # Staging relies on control-plane validation rather than public HTTP smoke
+  # tests; only dev opens the public endpoint (for GitHub-hosted runners).
+  virtual_network_subnet_id     = module.networking.webapp_integration_subnet_id
+  private_endpoint_subnet_id    = module.networking.private_endpoint_subnet_id
+  private_dns_zone_id           = module.networking.webapp_private_dns_zone_id
+  public_network_access_enabled = false
 
+  # Observability
   log_analytics_workspace_id = module.monitoring.log_analytics_workspace_id
 
   zone_balancing_enabled  = false

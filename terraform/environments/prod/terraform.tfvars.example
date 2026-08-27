@@ -1,14 +1,23 @@
-subscription_id        = "00000000-0000-0000-0000-000000000000"
-location               = "westeurope"
-app_name               = "myapp"
-container_image        = "myregistry.azurecr.io/myapp:latest"
-container_registry_url = "myregistry.azurecr.io"
-custom_domain          = "myapp.example.com"
+subscription_id = "00000000-0000-0000-0000-000000000000"
+location        = "westeurope"
+app_name        = "myapp"
+
+# Production runs a real, versioned application image — always pin an immutable
+# tag or digest so a blue/green swap is reproducible and auditable.
+container_image        = "mcr.microsoft.com/azuredocs/aci-helloworld:latest"
+container_registry_url = "mcr.microsoft.com"
 
 # health_check_path defaults to "/health". Set to "/" when using a placeholder
-# container image (e.g. nginx) that has no dedicated health endpoint.
+# container image that has no dedicated health endpoint.
 # health_check_path = "/"
+
+# Custom hostname (optional). Leave unset to serve on the default
+# *.azurewebsites.net hostname, covered by Azure's wildcard certificate.
+# custom_domain = "myapp.example.com"
 
 app_settings = {
   ASPNETCORE_ENVIRONMENT = "Production"
+
+  # Set WEBSITES_PORT when the container listens on a port other than 80.
+  # WEBSITES_PORT = "8080"
 }

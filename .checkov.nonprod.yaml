@@ -1,5 +1,5 @@
 # Checkov configuration for non-production environments (dev, staging).
-# Mirrors .checkov.yaml plus the two checks that are prod-only baselines.
+# Mirrors .checkov.yaml plus the three checks that are prod-only baselines.
 # Keep the skip lists in sync with .checkov.yaml when adding/removing entries.
 
 compact: false
@@ -14,9 +14,15 @@ skip-check:
   # ── Azure Files storage – not applicable for stateless containers ───────────
   - CKV_AZURE_88   # Ensure App Service uses Azure Files
 
-  # ── Temporarily skipped globally — TODO: revisit ────────────────────────────
-  - CKV_AZURE_13   # App Service Authentication (Easy Auth)
-  - CKV_AZURE_17   # Client certificates (mTLS)
+  # ── Application-layer concerns, not owned by this infrastructure template ───
+  - CKV_AZURE_13   # App Service Authentication (Easy Auth): authentication is owned by the
+                   # application, which brings its own identity provider and token handling.
+                   # Enforcing Easy Auth at the platform layer would break any app that
+                   # authenticates itself, and the template has no IdP configuration input.
+  - CKV_AZURE_17   # Client certificates (mTLS): inbound traffic arrives through the Private
+                   # Endpoint from inside the VNet (staging/prod) or from GitHub-hosted
+                   # runners during dev smoke tests. Neither path presents a client
+                   # certificate, so requiring one would fail all legitimate ingress.
 
   # ── Prod-only baselines, skipped for dev/staging ────────────────────────────
   - CKV_AZURE_212  # Minimum instances for failover: dev/staging start at 1

@@ -17,9 +17,15 @@ skip-check:
   # ── Azure Files storage – not applicable for stateless containers ───────────
   - CKV_AZURE_88   # "Ensure App Service uses Azure Files": containers are stateless; no persistent mount needed
 
-  # ── Temporarily skipped globally — TODO: revisit and fix or document permanently ─
-  - CKV_AZURE_13   # App Service Authentication (Easy Auth): TODO enable in webapp module if app requires it
-  - CKV_AZURE_17   # Client certificates (mTLS): TODO enable or document non-applicability
+  # ── Application-layer concerns, not owned by this infrastructure template ───
+  - CKV_AZURE_13   # App Service Authentication (Easy Auth): authentication is owned by the
+                   # application, which brings its own identity provider and token handling.
+                   # Enforcing Easy Auth at the platform layer would break any app that
+                   # authenticates itself, and the template has no IdP configuration input.
+  - CKV_AZURE_17   # Client certificates (mTLS): inbound traffic arrives through the Private
+                   # Endpoint from inside the VNet (staging/prod) or from GitHub-hosted
+                   # runners during dev smoke tests. Neither path presents a client
+                   # certificate, so requiring one would fail all legitimate ingress.
 
   # ── Prod-only baselines, NOT skipped here — they must pass for prod.
   # Non-prod environments use .checkov.nonprod.yaml which additionally skips:

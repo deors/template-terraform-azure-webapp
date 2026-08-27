@@ -1,13 +1,23 @@
-subscription_id        = "00000000-0000-0000-0000-000000000000"
-location               = "westeurope"
-app_name               = "myapp"
-container_image        = "myregistry.azurecr.io/myapp:latest"
-container_registry_url = "myregistry.azurecr.io"
+subscription_id = "00000000-0000-0000-0000-000000000000"
+location        = "westeurope"
+app_name        = "myapp"
 
-# health_check_path defaults to "/health". Set to "/" when using a placeholder
-# container image (e.g. nginx) that has no dedicated health endpoint.
-# health_check_path = "/"
+# Placeholder image — public, needs no registry credentials, so the template can
+# be applied and verified before a real application image exists. Replace with
+# your own image (and set container_registry_url) for a real deployment.
+container_image        = "mcr.microsoft.com/azuredocs/aci-helloworld:latest"
+container_registry_url = "mcr.microsoft.com"
+
+# nginx-style placeholder images serve "/" but have no /health endpoint, so the
+# App Service health check must point at "/" or instances are recycled on a
+# probe that can never succeed. Switch back to "/health" for a real app.
+health_check_path = "/"
 
 app_settings = {
   ASPNETCORE_ENVIRONMENT = "Development"
+
+  # Azure App Service routes to port 80 by default. Set WEBSITES_PORT when the
+  # container listens elsewhere (the Azure equivalent of an explicit
+  # container_port input).
+  # WEBSITES_PORT = "8080"
 }
