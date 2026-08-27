@@ -235,6 +235,7 @@ Export shared variables first — these are reused in every subsequent command:
 
 ```bash
 export APP_NAME=myapp
+export ENVIRONMENT=dev
 export SUBSCRIPTION_ID=<GUID>
 export LOCATION=westeurope   # set your target Azure region explicitly
 ```
@@ -283,12 +284,12 @@ both config files carries a stated reason.
 ### 3. Init
 
 ```bash
-cd terraform/environments/dev
+cd terraform/environments/$ENVIRONMENT
 tofu init \
   -backend-config="resource_group_name=rg-tfstate-$APP_NAME" \
   -backend-config="storage_account_name=sttf${APP_NAME}<sub-short>" \
   -backend-config="container_name=tfstate" \
-  -backend-config="key=dev/terraform.tfstate"
+  -backend-config="key=$ENVIRONMENT/terraform.tfstate"
 ```
 
 ### 4. Plan
@@ -316,7 +317,7 @@ tofu apply tfplan
 ### 6. Verify
 
 ```bash
-APP_NAME=$APP_NAME ENVIRONMENT=dev bash scripts/verify.sh
+./scripts/verify.sh
 ```
 
 ### 7. Destroy (teardown)
