@@ -11,7 +11,7 @@
 # and governs its own assertions, so the orchestrator stays template-agnostic.
 #
 # Required env:
-#   APP_NAME     application name, used as the resource name prefix
+#   APP_NAME     application name
 #   ENVIRONMENT  one of: dev, staging, prod
 #
 # Optional env:
@@ -115,7 +115,7 @@ require_env() {
   fi
 }
 
-require_env APP_NAME    "application name, used as the resource name prefix"
+require_env APP_NAME    "application name"
 require_env ENVIRONMENT "one of: ${VALID_ENVIRONMENTS// /, }"
 
 if [[ -n "${ENVIRONMENT:-}" && " ${VALID_ENVIRONMENTS} " != *" ${ENVIRONMENT} "* ]]; then
@@ -130,19 +130,19 @@ if [[ ${#FAILURES[@]} -gt 0 ]]; then
   exit 2
 fi
 
-PREFIX="${APP_NAME}-${ENVIRONMENT}"
-RG="rg-${PREFIX}"
-ASP="asp-${PREFIX}"
-APP="app-${PREFIX}"
-PE="pe-${PREFIX}"
-LAW="log-${PREFIX}"
-APPI="appi-${PREFIX}"
-AUTOSCALE="autoscale-${PREFIX}"
-VNET="vnet-${PREFIX}"
+BASENAME="${APP_NAME}-${ENVIRONMENT}"
+RG="rg-${BASENAME}"
+ASP="asp-${BASENAME}"
+APP="app-${BASENAME}"
+PE="pe-${BASENAME}"
+LAW="log-${BASENAME}"
+APPI="appi-${BASENAME}"
+AUTOSCALE="autoscale-${BASENAME}"
+VNET="vnet-${BASENAME}"
 # The flow-log storage account name is derived the same way the networking
-# module derives it: "stflow" + the prefix with dashes stripped, lowercased and
+# module derives it: "stflow" + the basename with dashes stripped, lowercased and
 # truncated to the 24-character limit Azure imposes on storage account names.
-FLOW_SA=$(echo "stflow${PREFIX//-/}" | tr '[:upper:]' '[:lower:]' | cut -c1-24)
+FLOW_SA=$(echo "stflow${BASENAME//-/}" | tr '[:upper:]' '[:lower:]' | cut -c1-24)
 
 # ── Per-environment expectations ──────────────────────────────────────────────
 case "$ENVIRONMENT" in
@@ -246,7 +246,7 @@ echo "::endgroup::"
 # so it is safe to assert. Metric alerts are hard-deleted on destroy, so a
 # torn-down stack fails these checks correctly.
 echo "::group::Metric alerts"
-for ALERT in "alert-cpu-${PREFIX}" "alert-memory-${PREFIX}" "alert-health-${PREFIX}"; do
+for ALERT in "alert-cpu-${BASENAME}" "alert-memory-${BASENAME}" "alert-health-${BASENAME}"; do
   ALERT_JSON=$(az monitor metrics alert show -n "$ALERT" -g "$RG" -o json 2>/dev/null || echo '{}')
   assert_eq "Alert $ALERT enabled" "$(jq -r '.enabled // "missing"' <<<"$ALERT_JSON")" "true"
 done
