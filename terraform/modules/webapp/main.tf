@@ -54,8 +54,9 @@ resource "azurerm_application_insights" "this" {
   application_type    = "web"
   tags                = local.base_tags
 
-  # Disable legacy ingestion key – use connection string only
-  disable_ip_masking = false
+  # Keep client-IP masking on in telemetry (the azurerm v4 replacement for the
+  # deprecated disable_ip_masking = false).
+  ip_masking_enabled = true
 }
 
 # ──────────────────────────────────────────────────────────────────────────────
