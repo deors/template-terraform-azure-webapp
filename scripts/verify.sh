@@ -198,7 +198,8 @@ assert_eq "WebApp httpsOnly"  "$(jq -r '.httpsOnly     // false'     <<<"$WA_JSO
 assert_eq "WebApp identity"   "$(jq -r '.identity.type // "None"'    <<<"$WA_JSON")" "UserAssigned"
 
 CFG_JSON=$(az webapp config show -n "$APP" -g "$RG" -o json 2>/dev/null || echo '{}')
-assert_eq "minTlsVersion"     "$(jq -r '.minTlsVersion // "missing"' <<<"$CFG_JSON")" "1.3"
+assert_eq "minTlsVersion"     "$(jq -r '.minTlsVersion    // "missing"' <<<"$CFG_JSON")" "1.3"
+assert_eq "scmMinTlsVersion"  "$(jq -r '.scmMinTlsVersion // "missing"' <<<"$CFG_JSON")" "1.3"
 assert_eq "ftpsState"         "$(jq -r '.ftpsState     // "missing"' <<<"$CFG_JSON")" "Disabled"
 assert_eq "http20Enabled"     "$(jq -r '.http20Enabled // false'     <<<"$CFG_JSON")" "true"
 echo "::endgroup::"

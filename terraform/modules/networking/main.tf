@@ -237,7 +237,12 @@ resource "azurerm_storage_account" "flow_logs" {
   account_replication_type = "LRS"
   account_kind             = "StorageV2"
 
-  https_traffic_only_enabled      = true
+  https_traffic_only_enabled = true
+  # TLS1_2 is the strictest floor Azure Storage accepts: minimumTlsVersion has
+  # no TLS1_3 value (the azurerm provider rejects it), so this account cannot
+  # match the 1.3-only baseline enforced on the Web App. Contained exposure:
+  # the account is single-purpose and its only client is Microsoft's own
+  # flow-log writer, which negotiates the highest version the service offers.
   min_tls_version                 = "TLS1_2"
   allow_nested_items_to_be_public = false
   # Explicitly true (matches provider default) — the value, but also the

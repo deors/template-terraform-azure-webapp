@@ -133,7 +133,7 @@ encryption — are documented once under
 
 - **Managed Identity**: User-assigned identity per Web App for Azure service authentication (no secrets in config)
 - **RBAC**: Role assignments (AcrPull for container registry, Key Vault access for secrets)
-- **TLS**: 1.3 in every environment. The `webapp` module defaults `minimum_tls_version` to `"1.3"` and carries a validation block rejecting anything other than `1.2` or `1.3`, so the floor cannot be silently weakened per environment. Production passes the value explicitly as documentation of intent; dev and staging inherit the same `1.3` default. `scripts/verify.sh` re-asserts `minTlsVersion = 1.3` against the deployed app in all three environments.
+- **TLS**: 1.3 only, in every environment. The `webapp` module defaults `minimum_tls_version` to `"1.3"` and its validation block accepts no other value, so no caller can weaken the floor to 1.2 — the same allow-list approach the AWS template applies to its ALB `ssl_policy`. The floor covers the Web App, the deployment slot, and both SCM (Kudu) endpoints, whose provider default would otherwise be 1.2. Production passes the value explicitly as documentation of intent; dev and staging inherit the same default. `scripts/verify.sh` re-asserts `minTlsVersion` and `scmMinTlsVersion` = 1.3 against the deployed app in all three environments. One documented exception: the flow-log storage account sits at `TLS1_2` because Azure Storage's `minimumTlsVersion` offers no 1.3 value — its only client is Microsoft's own flow-log writer.
 
 ### Compliance
 

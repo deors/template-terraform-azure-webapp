@@ -133,12 +133,16 @@ variable "allowed_ip_ranges" {
 
 # TLS / HTTPS
 variable "minimum_tls_version" {
-  description = "Minimum TLS version: 1.2 or 1.3"
+  description = "Minimum TLS version for the Web App, its slot, and their SCM endpoints. The platform baseline requires TLS 1.3 in every environment, dev and staging included. Constrained by an allow-list rather than left to the default alone, so a caller cannot silently weaken it."
   type        = string
   default     = "1.3"
+
+  # Allow-list of one, kept as a validation (not a hardcode) so the enforcement
+  # point is explicit and greppable, and so relaxing it ever again is a visible,
+  # reviewable diff here rather than a quiet value change at a call site.
   validation {
-    condition     = contains(["1.2", "1.3"], var.minimum_tls_version)
-    error_message = "minimum_tls_version must be 1.2 or 1.3."
+    condition     = contains(["1.3"], var.minimum_tls_version)
+    error_message = "minimum_tls_version must be 1.3 — the platform TLS baseline forbids TLS 1.2 or older in every environment."
   }
 }
 

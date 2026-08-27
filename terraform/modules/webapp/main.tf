@@ -136,9 +136,12 @@ resource "azurerm_linux_web_app" "this" {
 
   # ── Site configuration ────────────────────────────────────────────────────
   site_config {
-    always_on                         = true
-    http2_enabled                     = true
-    minimum_tls_version               = var.minimum_tls_version
+    always_on           = true
+    http2_enabled       = true
+    minimum_tls_version = var.minimum_tls_version
+    # The SCM (Kudu) site is a separate endpoint with its own TLS floor, which
+    # the provider defaults to 1.2 — pin it to the same baseline as the app.
+    scm_minimum_tls_version           = var.minimum_tls_version
     ftps_state                        = "Disabled"
     use_32_bit_worker                 = false
     worker_count                      = 1
@@ -251,7 +254,9 @@ resource "azurerm_linux_web_app_slot" "staging" {
     always_on           = false # staging slot does not need to stay warm
     http2_enabled       = true
     minimum_tls_version = var.minimum_tls_version
-    ftps_state          = "Disabled"
+    # Same rationale as the main app: the slot's SCM endpoint defaults to 1.2.
+    scm_minimum_tls_version = var.minimum_tls_version
+    ftps_state              = "Disabled"
 
     application_stack {
       docker_image_name        = var.container_image
