@@ -65,7 +65,7 @@ the platform.
 
 | Variable | Required | Purpose |
 |---|---|---|
-| `APP_NAME` | Yes | Application name; used as the resource-name prefix |
+| `APP_NAME` | Yes | Application name |
 | `ENVIRONMENT` | Yes | One of `dev`, `staging`, `prod` |
 | `GITHUB_STEP_SUMMARY` | No | Path appended with a Markdown summary (set automatically by GitHub Actions) |
 | `VERIFY_SUMMARY_FILE` | No | Machine-readable `key=value` summary path. Defaults to `/tmp/verify-summary.txt`. |
