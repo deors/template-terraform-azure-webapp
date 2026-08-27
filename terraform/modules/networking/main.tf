@@ -87,6 +87,21 @@ resource "azurerm_network_security_group" "webapp_integration" {
     destination_address_prefix = "AzureCloud"
   }
 
+  # Allow DNS over TCP (53/TCP), the fallback when a UDP response is truncated
+  # (large record sets, DNSSEC-signed responses). Denying it fails lookups
+  # intermittently for exactly those names.
+  security_rule {
+    name                       = "allow-dns-tcp-to-azure"
+    priority                   = 111
+    direction                  = "Outbound"
+    access                     = "Allow"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_range     = "53"
+    source_address_prefix      = "VirtualNetwork"
+    destination_address_prefix = "AzureCloud"
+  }
+
   # Deny all other outbound (covers Internet, VNet-to-VNet, etc.).
   security_rule {
     name                       = "deny-internet-outbound"
