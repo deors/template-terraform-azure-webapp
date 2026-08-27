@@ -19,7 +19,7 @@ resource "azurerm_resource_group" "this" {
 }
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Monitoring (Log Analytics)
+# Monitoring (Log Analytics, metric alerts)
 # ──────────────────────────────────────────────────────────────────────────────
 module "monitoring" {
   source = "../../modules/monitoring"
@@ -30,6 +30,12 @@ module "monitoring" {
   environment                  = local.environment
   tags                         = local.common_tags
   log_analytics_retention_days = 90
+
+  # Metric alerts (CPU high, memory high, no healthy instance) target the
+  # resources the webapp module creates. Not circular: the webapp consumes
+  # only the workspace ID, the alerts consume only webapp outputs.
+  app_service_plan_id = module.webapp.service_plan_id
+  web_app_id          = module.webapp.web_app_id
 }
 
 # ──────────────────────────────────────────────────────────────────────────────

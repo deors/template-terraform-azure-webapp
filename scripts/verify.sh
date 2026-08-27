@@ -237,6 +237,20 @@ assert_not_empty "App Insights instrumentation key" "$(jq -r '.instrumentationKe
 assert_eq "App Insights workspace linked" "$(jq -r 'if .workspaceResourceId then "linked" else "unlinked" end' <<<"$APPI_JSON")" "linked"
 echo "::endgroup::"
 
+# ── Metric alerts ─────────────────────────────────────────────────────────────
+# Existence and enablement only, not fired/resolved state: evaluating an alert
+# needs metric history that a fresh apply does not have, so asserting on state
+# would flake on every new deployment — the same reason the AWS template checks
+# alarm existence, not alarm state. `enabled` is configuration, not evaluation,
+# so it is safe to assert. Metric alerts are hard-deleted on destroy, so a
+# torn-down stack fails these checks correctly.
+echo "::group::Metric alerts"
+for ALERT in "alert-cpu-${PREFIX}" "alert-memory-${PREFIX}" "alert-health-${PREFIX}"; do
+  ALERT_JSON=$(az monitor metrics alert show -n "$ALERT" -g "$RG" -o json 2>/dev/null || echo '{}')
+  assert_eq "Alert $ALERT enabled" "$(jq -r '.enabled // "missing"' <<<"$ALERT_JSON")" "true"
+done
+echo "::endgroup::"
+
 # ── Autoscale (staging + prod only) ───────────────────────────────────────────
 echo "::group::Autoscale"
 if [[ "$EXPECTED_AUTOSCALE" == true ]]; then

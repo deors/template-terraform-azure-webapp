@@ -22,6 +22,7 @@ When used with the **workshop-platform-eng** provisioning workflow:
 | **Private Endpoint** | Private inbound access to Web App | All environments |
 | **Application Insights** | Observability & diagnostics | Yes (created or linked per env) |
 | **Log Analytics** | Centralized log aggregates | Yes (retention: 30/60/90 days per env) |
+| **Metric Alerts** | CPU high, memory high, no healthy instance | All environments |
 | **Network Security Groups** | Firewall rules (app egress, PE inbound) | All environments |
 | **Private DNS Zone** | DNS resolution for private endpoints | All environments |
 | **Autoscale Rules** | Dynamic instance scaling (CPU, memory) | Staging & Prod only |
@@ -39,7 +40,7 @@ terraform/
 │   └── prod/          # Production environment (P2v3, zone-redundant, 3+ instances, PE-only)
 │
 └── modules/
-    ├── monitoring/    # Log Analytics Workspace
+    ├── monitoring/    # Log Analytics Workspace, metric alerts
     ├── networking/    # VNet, Subnets, NSGs, Private DNS, Flow Logs
     └── webapp/        # App Service Plan, Web App, Identity, ACI, Private Endpoint, Autoscale, Diagnostics
 
@@ -81,7 +82,7 @@ All three exit paths write the summary file. A caller can always parse it and ne
 
 ### What it checks
 
-Eleven groups: resource group, App Service Plan (SKU, zone redundancy, worker count), Web App (state, HTTPS-only, managed identity, TLS, FTPS, HTTP/2), Private Endpoint, diagnostic settings, Log Analytics (including per-environment retention: 30/60/90 days), Application Insights, autoscale, networking (VNet, subnets, flow-log storage), staging slot, and public endpoint.
+Twelve groups: resource group, App Service Plan (SKU, zone redundancy, worker count), Web App (state, HTTPS-only, managed identity, TLS, FTPS, HTTP/2), Private Endpoint, diagnostic settings, Log Analytics (including per-environment retention: 30/60/90 days), Application Insights, metric alerts (CPU, memory, health — existence and enablement, since evaluation state needs metric history a fresh apply lacks), autoscale, networking (VNet, subnets, flow-log storage), staging slot, and public endpoint.
 
 All but the last are control-plane assertions. The **public endpoint** group is the one that sends real traffic: it issues an HTTPS `GET` against the default `*.azurewebsites.net` hostname and expects `200`. Because `curl` validates the certificate chain by default, this doubles as a check that Azure's wildcard certificate is serving correctly — a TLS failure surfaces as `000`, not a status code.
 
@@ -144,7 +145,7 @@ encryption — are documented once under
 
 ## Resource Group
 
-Each environment gets its own resource group named `rg-<app_name>-<env>` (for example `rg-myapp-dev`). The resource group is the containment boundary for every resource this template creates — the VNet, App Service Plan, Web App, Private Endpoint, Log Analytics Workspace, Application Insights, NSGs, Private DNS Zone, and VNet Flow Log storage.
+Each environment gets its own resource group named `rg-<app_name>-<env>` (for example `rg-myapp-dev`). The resource group is the containment boundary for every resource this template creates — the VNet, App Service Plan, Web App, Private Endpoint, Log Analytics Workspace, Application Insights, metric alerts, NSGs, Private DNS Zone, and VNet Flow Log storage.
 
 Practical implications:
 
@@ -257,25 +258,29 @@ Creates a dedicated Azure Storage Account for remote state (idempotent).
 ### 2. Security scan (Checkov)
 
 Run before `tofu plan` to catch policy violations before any state is touched.
-Dev and staging use the relaxed baseline; prod uses the strict one. Scan
-`terraform/modules` too — the environment directories only cover the root
-configuration, so a violation introduced in shared module code would otherwise
-go unscanned.
+Each environment is scanned with its own baseline: dev and staging use the
+relaxed config, prod the strict one. Checkov resolves the shared modules with
+the values each environment passes in, so module code is assessed three times —
+once per environment, under its real configuration.
+
+Do **not** scan `terraform/modules` on its own: with no caller, Checkov judges
+the module *defaults*, which are deliberately non-prod-shaped (single worker,
+no zone redundancy), and the strict baseline fails checks that every actual
+deployment satisfies.
 
 ```bash
-# dev / staging
+# dev
 checkov -d terraform/environments/dev --config-file .checkov.nonprod.yaml
+
+# staging
+checkov -d terraform/environments/staging --config-file .checkov.nonprod.yaml
 
 # prod
 checkov -d terraform/environments/prod --config-file .checkov.yaml
-
-# shared modules
-checkov -d terraform/modules --config-file .checkov.yaml
 ```
 
-Every skip in both config files carries a stated reason, and `.checkov.yaml`
-also lists the checks that pass natively so it is clear what is enforced by
-module code rather than waived.
+All three scans must pass (zero failures) before proceeding. Every skip in
+both config files carries a stated reason.
 
 ### 3. Init
 
