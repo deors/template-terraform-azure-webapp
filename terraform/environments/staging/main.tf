@@ -95,6 +95,14 @@ module "webapp" {
   autoscale_default_count = 1
   autoscale_max_count     = 3
 
+  # Scale out when either metric crosses its high threshold; scale in only
+  # when CPU and memory are both below their low thresholds (Azure AND-s
+  # scale-in rules).
+  autoscale_cpu_high_threshold    = 70
+  autoscale_cpu_low_threshold     = 30
+  autoscale_memory_high_threshold = 80
+  autoscale_memory_low_threshold  = 50
+
   # Staging slot for pre-swap validation
   deployment_slot_enabled = true
 

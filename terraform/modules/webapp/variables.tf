@@ -191,6 +191,30 @@ variable "autoscale_default_count" {
   default     = 1
 }
 
+variable "autoscale_cpu_high_threshold" {
+  description = "CPU percentage above which autoscale adds an instance"
+  type        = number
+  default     = 70
+}
+
+variable "autoscale_cpu_low_threshold" {
+  description = "CPU percentage below which autoscale may remove an instance (scale-in fires only when every scale-in rule holds)"
+  type        = number
+  default     = 30
+}
+
+variable "autoscale_memory_high_threshold" {
+  description = "Memory percentage above which autoscale adds an instance"
+  type        = number
+  default     = 80
+}
+
+variable "autoscale_memory_low_threshold" {
+  description = "Memory percentage below which autoscale may remove an instance (scale-in fires only when every scale-in rule holds)"
+  type        = number
+  default     = 50
+}
+
 # Slot (staging slot for zero-downtime deployments)
 variable "deployment_slot_enabled" {
   description = "Create a 'staging' deployment slot for zero-downtime swaps"

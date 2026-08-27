@@ -257,7 +257,8 @@ if [[ "$EXPECTED_AUTOSCALE" == true ]]; then
   AS_JSON=$(az monitor autoscale show -n "$AUTOSCALE" -g "$RG" -o json 2>/dev/null || echo '{}')
   assert_eq "Autoscale enabled"     "$(jq -r '.enabled // false'                        <<<"$AS_JSON")" "true"
   assert_ge "Autoscale min capacity" "$(jq -r '.profiles[0].capacity.minimum // 0'        <<<"$AS_JSON")" "$EXPECTED_AUTOSCALE_MIN"
-  assert_ge "Autoscale rules"        "$(jq -r '(.profiles[0].rules // []) | length'       <<<"$AS_JSON")" 2
+  # 4 rules: CPU out/in + memory out/in — a missing scale-in rule must fail
+  assert_ge "Autoscale rules"        "$(jq -r '(.profiles[0].rules // []) | length'       <<<"$AS_JSON")" 4
 else
   pass "Autoscale disabled (not expected for $ENVIRONMENT)"
 fi

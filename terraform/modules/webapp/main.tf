@@ -397,6 +397,10 @@ resource "azurerm_monitor_autoscale_setting" "this" {
       maximum = var.autoscale_max_count
     }
 
+    # Scale-out rules are OR-ed: either CPU or memory above its high threshold
+    # adds an instance. Scale-in rules are AND-ed by Azure autoscale: an
+    # instance is removed only when CPU *and* memory are both below their low
+    # thresholds, so a memory-bound plan is never scaled in on idle CPU alone.
     rule {
       metric_trigger {
         metric_name        = "CpuPercentage"
@@ -406,7 +410,7 @@ resource "azurerm_monitor_autoscale_setting" "this" {
         time_window        = "PT5M"
         time_aggregation   = "Average"
         operator           = "GreaterThan"
-        threshold          = 70
+        threshold          = var.autoscale_cpu_high_threshold
       }
       scale_action {
         direction = "Increase"
@@ -425,7 +429,7 @@ resource "azurerm_monitor_autoscale_setting" "this" {
         time_window        = "PT10M"
         time_aggregation   = "Average"
         operator           = "LessThan"
-        threshold          = 30
+        threshold          = var.autoscale_cpu_low_threshold
       }
       scale_action {
         direction = "Decrease"
@@ -444,13 +448,32 @@ resource "azurerm_monitor_autoscale_setting" "this" {
         time_window        = "PT5M"
         time_aggregation   = "Average"
         operator           = "GreaterThan"
-        threshold          = 80
+        threshold          = var.autoscale_memory_high_threshold
       }
       scale_action {
         direction = "Increase"
         type      = "ChangeCount"
         value     = "1"
         cooldown  = "PT5M"
+      }
+    }
+
+    rule {
+      metric_trigger {
+        metric_name        = "MemoryPercentage"
+        metric_resource_id = azurerm_service_plan.this.id
+        time_grain         = "PT1M"
+        statistic          = "Average"
+        time_window        = "PT10M"
+        time_aggregation   = "Average"
+        operator           = "LessThan"
+        threshold          = var.autoscale_memory_low_threshold
+      }
+      scale_action {
+        direction = "Decrease"
+        type      = "ChangeCount"
+        value     = "1"
+        cooldown  = "PT10M"
       }
     }
   }
