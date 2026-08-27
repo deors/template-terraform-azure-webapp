@@ -11,10 +11,6 @@ container_registry_url = "mcr.microsoft.com"
 # container image that has no dedicated health endpoint.
 # health_check_path = "/"
 
-# Custom hostname (optional). Leave unset to serve on the default
-# *.azurewebsites.net hostname, covered by Azure's wildcard certificate.
-# custom_domain = "myapp.example.com"
-
 app_settings = {
   ASPNETCORE_ENVIRONMENT = "Production"
 

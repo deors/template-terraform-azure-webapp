@@ -78,8 +78,7 @@ module "webapp" {
   container_registry_url                  = var.container_registry_url
   container_registry_use_managed_identity = var.container_registry_url != ""
 
-  app_settings  = var.app_settings
-  custom_domain = var.custom_domain
+  app_settings = var.app_settings
 
   # Networking – VNet integration + private endpoint, public endpoint closed.
   # Production is never publicly reachable; all ingress arrives through the

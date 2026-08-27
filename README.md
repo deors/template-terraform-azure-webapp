@@ -178,9 +178,7 @@ app_settings = {
 
 ### Hostnames and TLS
 
-Every environment serves on its Azure-assigned hostname, `app-<app>-<env>.azurewebsites.net`, which Azure covers with a platform-managed wildcard certificate for `*.azurewebsites.net`. **There is no certificate for this template to provision, bind, or renew** — TLS works out of the box in all three environments, and nothing expires under your ownership. This is the configuration the template is built and verified against.
-
-Production optionally accepts a `custom_domain` for a vanity hostname. It is left off by default; the wildcard-covered default hostname is the expected path.
+Every environment serves on its Azure-assigned hostname, `app-<app>-<env>.azurewebsites.net`, which Azure covers with a platform-managed wildcard certificate for `*.azurewebsites.net`. **There is no certificate for this template to provision, bind, or renew** — TLS works out of the box in all three environments, and nothing expires under your ownership. This is the configuration the template is built and verified against; the template deliberately has no custom-domain input.
 
 ### Container Registry
 

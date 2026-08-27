@@ -146,18 +146,6 @@ variable "minimum_tls_version" {
   }
 }
 
-variable "custom_domain" {
-  description = "Custom hostname to bind (optional)"
-  type        = string
-  default     = ""
-}
-
-variable "managed_certificate" {
-  description = "Create a managed TLS certificate for the custom domain"
-  type        = bool
-  default     = true
-}
-
 # Observability
 variable "log_analytics_workspace_id" {
   description = "Log Analytics Workspace ID for diagnostic settings"

@@ -29,9 +29,6 @@ locals {
   # value is known at plan time (subnet IDs are computed and would force the
   # count to "known after apply").
   create_private_endpoint = var.private_endpoint_enabled
-
-  # Only bind custom hostname when one is given
-  create_custom_domain = var.custom_domain != ""
 }
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -289,29 +286,6 @@ resource "azurerm_linux_web_app_slot" "staging" {
       site_config[0].application_stack,
     ]
   }
-}
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Custom domain + managed TLS certificate
-# ──────────────────────────────────────────────────────────────────────────────
-resource "azurerm_app_service_custom_hostname_binding" "this" {
-  count               = local.create_custom_domain ? 1 : 0
-  hostname            = var.custom_domain
-  app_service_name    = azurerm_linux_web_app.this.name
-  resource_group_name = var.resource_group_name
-}
-
-resource "azurerm_app_service_managed_certificate" "this" {
-  count                      = local.create_custom_domain && var.managed_certificate ? 1 : 0
-  custom_hostname_binding_id = azurerm_app_service_custom_hostname_binding.this[0].id
-  tags                       = local.base_tags
-}
-
-resource "azurerm_app_service_certificate_binding" "this" {
-  count               = local.create_custom_domain && var.managed_certificate ? 1 : 0
-  hostname_binding_id = azurerm_app_service_custom_hostname_binding.this[0].id
-  certificate_id      = azurerm_app_service_managed_certificate.this[0].id
-  ssl_state           = "SniEnabled"
 }
 
 # ──────────────────────────────────────────────────────────────────────────────

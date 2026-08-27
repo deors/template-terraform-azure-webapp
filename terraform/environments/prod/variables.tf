@@ -35,9 +35,3 @@ variable "app_settings" {
   type        = map(string)
   default     = {}
 }
-
-variable "custom_domain" {
-  description = "Custom domain for the production Web App (optional)"
-  type        = string
-  default     = ""
-}
