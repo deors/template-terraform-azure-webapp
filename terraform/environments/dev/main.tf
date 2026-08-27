@@ -82,7 +82,7 @@ module "webapp" {
   # Dev allows public ingress so GitHub-hosted runners (no fixed IP, not in
   # the VNet) can reach the deployed app for HTTP smoke tests in CI/CD.
   # Staging and prod keep the public endpoint closed and rely on
-  # control-plane validation instead — see docs/SETUP.md.
+  # control-plane validation instead.
   virtual_network_subnet_id     = module.networking.webapp_integration_subnet_id
   private_endpoint_subnet_id    = module.networking.private_endpoint_subnet_id
   private_dns_zone_id           = module.networking.webapp_private_dns_zone_id
