@@ -19,7 +19,7 @@ variable "container_image" {
 }
 
 variable "container_registry_url" {
-  description = "Container registry URL. Leave empty for public Docker Hub images."
+  description = "Container registry URL (e.g. myregistry.azurecr.io). Leave empty for public Docker Hub images."
   type        = string
   default     = ""
 }
