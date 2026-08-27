@@ -52,6 +52,9 @@ module "networking" {
   vnet_address_space             = ["10.10.0.0/16"]
   webapp_integration_subnet_cidr = "10.10.1.0/24"
   private_endpoint_subnet_cidr   = "10.10.2.0/24"
+
+  # Flow-log retention follows the same 30/60/90 ladder as Log Analytics
+  flow_log_retention_days = 30
 }
 
 # ──────────────────────────────────────────────────────────────────────────────

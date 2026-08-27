@@ -29,6 +29,8 @@ skip-check:
 
   # ── Prod-only baselines, NOT skipped here — they must pass for prod.
   # Non-prod environments use .checkov.nonprod.yaml which additionally skips:
+  #   CKV_AZURE_12  — flow-log retention ≥ 90 days (retention is environment-
+  #                   driven: 30/60/90; prod meets the floor natively)
   #   CKV_AZURE_212 — minimum instances for failover (dev/staging start at 1)
   #   CKV_AZURE_222 — public network access disabled (dev keeps public open
   #                   for HTTP smoke tests from GitHub-hosted runners)

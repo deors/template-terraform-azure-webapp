@@ -41,3 +41,9 @@ variable "private_endpoint_subnet_cidr" {
   type        = string
   default     = "10.0.2.0/24"
 }
+
+variable "flow_log_retention_days" {
+  description = "Retention period in days for VNet flow logs in the dedicated storage account"
+  type        = number
+  default     = 90
+}

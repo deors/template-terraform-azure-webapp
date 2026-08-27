@@ -275,7 +275,7 @@ resource "azurerm_network_watcher_flow_log" "vnet" {
 
   retention_policy {
     enabled = true
-    days    = 90
+    days    = var.flow_log_retention_days
   }
 
   tags = local.base_tags
