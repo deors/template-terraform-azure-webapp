@@ -25,6 +25,16 @@ resource "azurerm_log_analytics_workspace" "this" {
 # No action group is wired: routing (email, webhook, on-call) is application-
 # and organisation-specific, so the alerts surface in Azure Monitor and the
 # caller attaches actions out of band.
+#
+# Every criteria block sets skip_metric_validation. The alert API otherwise
+# validates the metric name against the target's registered metric
+# definitions, and a freshly created plan or app can take minutes to register
+# them — so an apply that creates target and alert back-to-back intermittently
+# fails with 400 "Couldn't find a metric named ...". Skipping validation
+# removes that race. The trade-off: a mistyped metric name would no longer be
+# rejected at apply time and would produce an alert that never fires, so any
+# change to a metric_name below must be checked against the platform metrics
+# reference for the target resource type.
 # ──────────────────────────────────────────────────────────────────────────────
 
 resource "azurerm_monitor_metric_alert" "cpu_high" {
@@ -43,6 +53,8 @@ resource "azurerm_monitor_metric_alert" "cpu_high" {
     aggregation      = "Average"
     operator         = "GreaterThan"
     threshold        = var.alert_cpu_threshold
+
+    skip_metric_validation = true
   }
 }
 
@@ -62,6 +74,8 @@ resource "azurerm_monitor_metric_alert" "memory_high" {
     aggregation      = "Average"
     operator         = "GreaterThan"
     threshold        = var.alert_memory_threshold
+
+    skip_metric_validation = true
   }
 }
 
@@ -89,5 +103,7 @@ resource "azurerm_monitor_metric_alert" "health_check" {
     aggregation      = "Average"
     operator         = "LessThan"
     threshold        = 1
+
+    skip_metric_validation = true
   }
 }
