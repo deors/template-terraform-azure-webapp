@@ -80,8 +80,10 @@ data "azurerm_container_registry" "this" {
   count = var.container_registry_url != "" && var.container_registry_use_managed_identity ? 1 : 0
 
   # Derive the registry name from the URL: <name>.azurecr.io → <name>
-  name                = split(".", var.container_registry_url)[0]
-  resource_group_name = var.resource_group_name
+  name = split(".", var.container_registry_url)[0]
+  # A pre-existing ACR lives in its own resource group, not the one this
+  # template creates — the caller names it; the app RG is only the fallback.
+  resource_group_name = var.container_registry_resource_group_name != "" ? var.container_registry_resource_group_name : var.resource_group_name
 
   lifecycle {
     # Without this gate, a public registry URL (mcr.microsoft.com, ghcr.io,

@@ -75,6 +75,12 @@ variable "container_registry_use_managed_identity" {
   default     = true
 }
 
+variable "container_registry_resource_group_name" {
+  description = "Resource group holding the Azure Container Registry, used to locate it for the AcrPull grant. Defaults to the app's own resource group when empty — set this for any pre-existing ACR, which will live elsewhere. Only used on the managed-identity (ACR) path."
+  type        = string
+  default     = ""
+}
+
 variable "container_registry_username" {
   description = "Username for registries that authenticate with username + password/token (private GHCR, private Docker Hub). Leave empty for public registries and for ACR, which uses the managed identity. Inject from CI secrets, never from a tfvars file."
   type        = string

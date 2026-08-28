@@ -24,6 +24,12 @@ variable "container_registry_url" {
   default     = ""
 }
 
+variable "container_registry_resource_group_name" {
+  description = "Resource group holding the Azure Container Registry (ACR path only). Defaults to the environment's own resource group when empty — set it for any pre-existing ACR, which will live elsewhere."
+  type        = string
+  default     = ""
+}
+
 variable "container_registry_username" {
   description = "Username for registries that authenticate with username + password/token (private GHCR, private Docker Hub). Leave empty for public registries and for ACR (managed identity). Inject from CI secrets, never from a tfvars file."
   type        = string

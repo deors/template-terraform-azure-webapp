@@ -81,6 +81,7 @@ module "webapp" {
   container_registry_use_managed_identity = endswith(var.container_registry_url, ".azurecr.io") && var.container_registry_username == ""
   container_registry_username             = var.container_registry_username
   container_registry_password             = var.container_registry_password
+  container_registry_resource_group_name  = var.container_registry_resource_group_name
 
   app_settings = var.app_settings
 

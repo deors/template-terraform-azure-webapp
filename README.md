@@ -211,7 +211,6 @@ encryption — are documented once under
 
 ---
 
-
 ## Customization
 
 ### App Settings
@@ -246,13 +245,20 @@ is selected by what you provide:
 | Registry | Configure | Pull authenticates as |
 |---|---|---|
 | Public (`mcr.microsoft.com`, public Docker Hub/GHCR) | `container_registry_url` only | Anonymous — no credentials involved |
-| Private ACR (`*.azurecr.io`) | `container_registry_url` only | The Web App's managed identity; the template grants it `AcrPull` |
+| Private ACR (`*.azurecr.io`) | `container_registry_url` + `container_registry_resource_group_name` | The Web App's managed identity; the template grants it `AcrPull` |
 | Private GHCR / Docker Hub | `container_registry_url` + `container_registry_username` + `container_registry_password` | The provided username + token, stored in the app's registry settings |
 
 ```hcl
-container_registry_url = "myregistry.azurecr.io"
-container_image        = "myregistry.azurecr.io/myapp:v1.2.3"
+container_registry_url                 = "myregistry.azurecr.io"
+container_registry_resource_group_name = "rg-shared-registries"
+container_image                        = "myregistry.azurecr.io/myapp:v1.2.3"
 ```
+
+Granting `AcrPull` requires locating the registry, so
+`container_registry_resource_group_name` names the resource group the ACR
+lives in. It defaults to the environment's own group when unset — only
+correct for an ACR created inside this environment, which a pre-existing
+registry never is.
 
 For username/password registries, inject the pair from CI secrets — never
 from a tfvars file:
