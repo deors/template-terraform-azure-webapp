@@ -16,7 +16,7 @@ terraform {
   }
 
   # All other backend values are injected at init time via -backend-config flags.
-  # Run scripts/bootstrap-tfstate.sh from the workshop-platform-eng repository first.
+  # Run scripts/bootstrap-tfstate-azure.sh from the workshop-platform-eng repository first.
   backend "azurerm" {
     # The state storage account is created with shared-key access disabled, so
     # the backend must authenticate against the blob data plane with Azure AD

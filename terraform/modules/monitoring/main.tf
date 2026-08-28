@@ -20,11 +20,11 @@ resource "azurerm_log_analytics_workspace" "this" {
 # ──────────────────────────────────────────────────────────────────────────────
 # Metric alerts
 #
-# Unlike CloudWatch alarms, Azure metric alerts validate their scopes at
-# creation, so the target resource IDs are passed in rather than derived from
-# the naming convention. No action group is wired: routing (email, webhook,
-# on-call) is application- and organisation-specific, so the alerts surface in
-# Azure Monitor and the caller attaches actions out of band.
+# Azure metric alerts validate their scopes at creation, so the target
+# resource IDs are passed in rather than derived from the naming convention.
+# No action group is wired: routing (email, webhook, on-call) is application-
+# and organisation-specific, so the alerts surface in Azure Monitor and the
+# caller attaches actions out of band.
 # ──────────────────────────────────────────────────────────────────────────────
 
 resource "azurerm_monitor_metric_alert" "cpu_high" {
@@ -69,10 +69,10 @@ resource "azurerm_monitor_metric_alert" "memory_high" {
 # behind the health check the webapp module always configures; "LessThan 1"
 # fires only when no instance reports healthy — deliberately, so the alert has
 # the same meaning whether the metric is emitted per instance (0/1) or as a
-# healthy percentage (0–100). Caveat vs the CloudWatch task-count alarm: metric
-# alerts only evaluate while data is emitted, so a stopped (not merely
-# unhealthy) app goes stale rather than firing — the post-apply verify.sh
-# "WebApp state = Running" assertion covers that case instead.
+# healthy percentage (0–100). Caveat: metric alerts only evaluate while data
+# is emitted, so a stopped (not merely unhealthy) app goes stale rather than
+# firing — the post-apply verify.sh "WebApp state = Running" assertion covers
+# that case instead.
 resource "azurerm_monitor_metric_alert" "health_check" {
   name                = "alert-health-${local.prefix}"
   resource_group_name = var.resource_group_name

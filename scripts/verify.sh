@@ -241,10 +241,9 @@ echo "::endgroup::"
 # ── Metric alerts ─────────────────────────────────────────────────────────────
 # Existence and enablement only, not fired/resolved state: evaluating an alert
 # needs metric history that a fresh apply does not have, so asserting on state
-# would flake on every new deployment — the same reason the AWS template checks
-# alarm existence, not alarm state. `enabled` is configuration, not evaluation,
-# so it is safe to assert. Metric alerts are hard-deleted on destroy, so a
-# torn-down stack fails these checks correctly.
+# would flake on every new deployment. `enabled` is configuration, not
+# evaluation, so it is safe to assert. Metric alerts are hard-deleted on
+# destroy, so a torn-down stack fails these checks correctly.
 echo "::group::Metric alerts"
 for ALERT in "alert-cpu-${BASENAME}" "alert-memory-${BASENAME}" "alert-health-${BASENAME}"; do
   ALERT_JSON=$(az monitor metrics alert show -n "$ALERT" -g "$RG" -o json 2>/dev/null || echo '{}')
