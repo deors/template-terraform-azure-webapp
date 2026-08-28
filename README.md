@@ -182,12 +182,34 @@ Every environment serves on its Azure-assigned hostname, `app-<app>-<env>.azurew
 
 ### Container Registry
 
-Pull images from private container registry (GHCR, ACR, Docker Hub):
+The pull happens at runtime, by the Web App's managed identity or stored
+registry credentials — never by the identity running Terraform. The auth path
+is selected by what you provide:
+
+| Registry | Configure | Pull authenticates as |
+|---|---|---|
+| Public (`mcr.microsoft.com`, public Docker Hub/GHCR) | `container_registry_url` only | Anonymous — no credentials involved |
+| Private ACR (`*.azurecr.io`) | `container_registry_url` only | The Web App's managed identity; the template grants it `AcrPull` |
+| Private GHCR / Docker Hub | `container_registry_url` + `container_registry_username` + `container_registry_password` | The provided username + token, stored in the app's registry settings |
 
 ```hcl
 container_registry_url = "myregistry.azurecr.io"
 container_image        = "myregistry.azurecr.io/myapp:v1.2.3"
 ```
+
+For username/password registries, inject the pair from CI secrets — never
+from a tfvars file:
+
+```bash
+tofu plan ... -var="container_registry_username=$REGISTRY_USER" -var="container_registry_password=$REGISTRY_TOKEN"
+```
+
+The password variable is `sensitive`, so it is redacted from plan output and
+logs; like all Terraform inputs it is persisted in state, which is one of the
+reasons state lives in an access-controlled storage account. After first
+creation, CI/CD owns the container configuration (the template ignores drift
+on `application_stack`), so rotate registry credentials through the
+deployment pipeline rather than by re-applying Terraform.
 
 ### Key Vault Integration
 
@@ -219,8 +241,11 @@ The following tools must be installed and on `$PATH`:
 Authenticate before running any command:
 
 ```bash
-az login
-az account set --subscription $SUBSCRIPTION_ID
+export AZURE_TENANT_ID=<GUID>
+export AZURE_SUBSCRIPTION_ID=<GUID>
+
+az login --tenant $AZURE_TENANT_ID
+az account set --subscription $AZURE_SUBSCRIPTION_ID
 ```
 
 ### 1. Bootstrap Terraform State (one-time)
@@ -236,20 +261,30 @@ Export shared variables first — these are reused in every subsequent command:
 ```bash
 export APP_NAME=myapp
 export ENVIRONMENT=dev
-export SUBSCRIPTION_ID=<GUID>
-export LOCATION=westeurope   # set your target Azure region explicitly
+export AZURE_LOCATION=westeurope   # set your target Azure region explicitly
+
+export APP_SHORT=$(echo "$APP_NAME" | tr -d '-' | cut -c1-12)
+export SUB_SHORT=$(echo "$AZURE_SUBSCRIPTION_ID" | tr -d '-' | cut -c1-8)
 ```
 
-> **`location` is required by design and has no default.** Azure resource groups are regional and every resource in them inherits that placement, so a forgotten region would not fail — it would deploy the whole stack to whichever region the template happened to default to, and `tofu plan` would report no problem. Removing the default converts a silent misdeployment into an upfront error. Pass it explicitly on every `plan`, `apply`, and `destroy`.
+To be able to authorize the access to the Azure Storage Account for Terraform state, the logged-in
+user must have **Storage Blob Data Contributor** role - **Owner** or **Contributor** is not enough:
+
+```bash
+az role assignment create \
+  --assignee $(az ad signed-in-user show --query id -o tsv) \
+  --role "Storage Blob Data Contributor" \
+  --scope $(az storage account show -n sttf${APP_SHORT}${SUB_SHORT} --query id -o tsv)
+```
 
 From the **workshop-platform-eng** repository:
 
 ```bash
 cd /path/to/workshop-platform-eng
 ./scripts/bootstrap-tfstate.sh \
-  --app-name $APP_NAME \
-  --subscription-id $SUBSCRIPTION_ID \
-  --location $LOCATION
+  --subscription-id $AZURE_SUBSCRIPTION_ID \
+  --location $AZURE_LOCATION \
+  --app-name $APP_NAME
 ```
 
 Creates a dedicated Azure Storage Account for remote state (idempotent).
@@ -284,10 +319,9 @@ both config files carries a stated reason.
 ### 3. Init
 
 ```bash
-cd terraform/environments/$ENVIRONMENT
-tofu init \
-  -backend-config="resource_group_name=rg-tfstate-$APP_NAME" \
-  -backend-config="storage_account_name=sttf${APP_NAME}<sub-short>" \
+tofu -chdir=terraform/environments/$ENVIRONMENT init \
+  -backend-config="resource_group_name=rg-$APP_NAME-tfstate" \
+  -backend-config="storage_account_name=sttf${APP_SHORT}${SUB_SHORT}" \
   -backend-config="container_name=tfstate" \
   -backend-config="key=$ENVIRONMENT/terraform.tfstate"
 ```
@@ -295,7 +329,14 @@ tofu init \
 ### 4. Plan
 
 ```bash
-tofu plan -var-file="terraform.tfvars" -var="location=$LOCATION" -out=tfplan
+tofu -chdir=terraform/environments/$ENVIRONMENT plan \
+  -var="subscription_id=$AZURE_SUBSCRIPTION_ID" \
+  -var="location=$AZURE_LOCATION" \
+  -var="app_name=$APP_NAME" \
+  -var="container_image=mcr.microsoft.com/azuredocs/aci-helloworld:latest" \
+  -var="container_registry_url=mcr.microsoft.com" \
+  -var="health_check_path=/" \
+  -out=tfplan
 ```
 
 Review the plan output before applying — confirm the region on the resource
@@ -311,7 +352,7 @@ image exists. Swap `container_image`, `container_registry_url`, and
 ### 5. Apply
 
 ```bash
-tofu apply tfplan
+tofu -chdir=terraform/environments/$ENVIRONMENT apply tfplan
 ```
 
 ### 6. Verify
@@ -323,7 +364,13 @@ tofu apply tfplan
 ### 7. Destroy (teardown)
 
 ```bash
-tofu destroy -var-file="terraform.tfvars" -var="location=$LOCATION"
+tofu -chdir=terraform/environments/$ENVIRONMENT destroy \
+  -var="subscription_id=$AZURE_SUBSCRIPTION_ID" \
+  -var="location=$AZURE_LOCATION" \
+  -var="app_name=$APP_NAME" \
+  -var="container_image=mcr.microsoft.com/azuredocs/aci-helloworld:latest" \
+  -var="container_registry_url=mcr.microsoft.com" \
+  -var="health_check_path=/"
 ```
 
 ---

@@ -82,6 +82,17 @@ data "azurerm_container_registry" "this" {
   # Derive the registry name from the URL: <name>.azurecr.io → <name>
   name                = split(".", var.container_registry_url)[0]
   resource_group_name = var.resource_group_name
+
+  lifecycle {
+    # Without this gate, a public registry URL (mcr.microsoft.com, ghcr.io,
+    # docker.io) reaches the ACR lookup and fails opaquely on ACR resource-name
+    # rules ("alpha numeric characters only", "cannot be less than 5
+    # characters") — the first DNS label of the URL is not an ACR name.
+    precondition {
+      condition     = endswith(var.container_registry_url, ".azurecr.io")
+      error_message = "container_registry_use_managed_identity requires an Azure Container Registry URL (*.azurecr.io). Public registries (mcr.microsoft.com, Docker Hub, GHCR) need no credentials — leave the flag off for them."
+    }
+  }
 }
 
 resource "azurerm_role_assignment" "acr_pull" {
@@ -174,8 +185,8 @@ resource "azurerm_linux_web_app" "this" {
     application_stack {
       docker_image_name        = var.container_image
       docker_registry_url      = var.container_registry_url != "" ? "https://${var.container_registry_url}" : "https://index.docker.io"
-      docker_registry_username = null
-      docker_registry_password = null
+      docker_registry_username = var.container_registry_username != "" ? var.container_registry_username : null
+      docker_registry_password = var.container_registry_password != "" ? var.container_registry_password : null
     }
 
     # Managed identity for ACR pull
@@ -227,6 +238,11 @@ resource "azurerm_linux_web_app" "this" {
     ignore_changes = [
       site_config[0].application_stack,
     ]
+
+    precondition {
+      condition     = !(var.container_registry_use_managed_identity && var.container_registry_username != "")
+      error_message = "container_registry_use_managed_identity and container_registry_username are mutually exclusive — managed identity is the ACR path, username/password the GHCR/Docker Hub path."
+    }
   }
 }
 
@@ -259,8 +275,8 @@ resource "azurerm_linux_web_app_slot" "staging" {
     application_stack {
       docker_image_name        = var.container_image
       docker_registry_url      = var.container_registry_url != "" ? "https://${var.container_registry_url}" : "https://index.docker.io"
-      docker_registry_username = null
-      docker_registry_password = null
+      docker_registry_username = var.container_registry_username != "" ? var.container_registry_username : null
+      docker_registry_password = var.container_registry_password != "" ? var.container_registry_password : null
     }
 
     container_registry_use_managed_identity       = var.container_registry_use_managed_identity && var.container_registry_url != ""

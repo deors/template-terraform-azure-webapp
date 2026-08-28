@@ -15,9 +15,15 @@ terraform {
     }
   }
 
-  # All backend values are injected at init time via -backend-config flags.
+  # All other backend values are injected at init time via -backend-config flags.
   # Run scripts/bootstrap-tfstate.sh from the workshop-platform-eng repository first.
-  backend "azurerm" {}
+  backend "azurerm" {
+    # The state storage account is created with shared-key access disabled, so
+    # the backend must authenticate against the blob data plane with Azure AD
+    # (locally: the az login identity; in CI: OIDC via ARM_USE_AZUREAD). Needs
+    # the Storage Blob Data Contributor role on the state storage account.
+    use_azuread_auth = true
+  }
 }
 
 provider "azurerm" {

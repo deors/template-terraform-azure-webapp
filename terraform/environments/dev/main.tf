@@ -72,9 +72,15 @@ module "webapp" {
   # Dev: smallest Premium v3 SKU for VNet integration support
   sku_name = "P0v3"
 
-  container_image                         = var.container_image
-  container_registry_url                  = var.container_registry_url
-  container_registry_use_managed_identity = var.container_registry_url != ""
+  container_image        = var.container_image
+  container_registry_url = var.container_registry_url
+  # Registry auth is selected by what the caller provides: an *.azurecr.io URL
+  # with no username pulls via the managed identity (AcrPull granted by the
+  # module); a username + password/token (private GHCR, Docker Hub) pulls with
+  # those credentials; anything else — public registries — pulls anonymously.
+  container_registry_use_managed_identity = endswith(var.container_registry_url, ".azurecr.io") && var.container_registry_username == ""
+  container_registry_username             = var.container_registry_username
+  container_registry_password             = var.container_registry_password
 
   app_settings = var.app_settings
 

@@ -24,6 +24,19 @@ variable "container_registry_url" {
   default     = ""
 }
 
+variable "container_registry_username" {
+  description = "Username for registries that authenticate with username + password/token (private GHCR, private Docker Hub). Leave empty for public registries and for ACR (managed identity). Inject from CI secrets, never from a tfvars file."
+  type        = string
+  default     = ""
+}
+
+variable "container_registry_password" {
+  description = "Password or access token paired with container_registry_username. Sensitive: redacted from plan output and logs. Inject from CI secrets, never from a tfvars file."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
 variable "health_check_path" {
   description = "Path the App Service health check polls. Defaults to /health. Set to / when using a placeholder container image that has no dedicated health endpoint."
   type        = string

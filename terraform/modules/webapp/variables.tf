@@ -70,9 +70,22 @@ variable "container_registry_url" {
 }
 
 variable "container_registry_use_managed_identity" {
-  description = "Use managed identity to pull from the container registry"
+  description = "Use managed identity to pull from the container registry. Only valid for Azure Container Registry (*.azurecr.io); mutually exclusive with container_registry_username."
   type        = bool
   default     = true
+}
+
+variable "container_registry_username" {
+  description = "Username for registries that authenticate with username + password/token (private GHCR, private Docker Hub). Leave empty for public registries and for ACR, which uses the managed identity. Inject from CI secrets, never from a tfvars file."
+  type        = string
+  default     = ""
+}
+
+variable "container_registry_password" {
+  description = "Password or access token paired with container_registry_username. Marked sensitive so it is redacted from plan output and logs; it is still persisted in the Terraform state, which is one reason state lives in an access-controlled storage account. Inject from CI secrets, never from a tfvars file."
+  type        = string
+  default     = ""
+  sensitive   = true
 }
 
 # App settings
