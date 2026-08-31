@@ -11,9 +11,9 @@ container_registry_url = "mcr.microsoft.com"
 # container image that has no dedicated health endpoint.
 # health_check_path = "/"
 
+# Real apps: 8080 (default). Placeholder: 80.
+container_port = 80
+
 app_settings = {
   ASPNETCORE_ENVIRONMENT = "Production"
-
-  # Set WEBSITES_PORT when the container listens on a port other than 80.
-  # WEBSITES_PORT = "8080"
 }

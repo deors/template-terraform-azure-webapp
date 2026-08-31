@@ -13,11 +13,9 @@ container_registry_url = "mcr.microsoft.com"
 # probe that can never succeed. Switch back to "/health" for a real app.
 health_check_path = "/"
 
+# Real apps: 8080 (default). Placeholder: 80.
+container_port = 80
+
 app_settings = {
   ASPNETCORE_ENVIRONMENT = "Development"
-
-  # Azure App Service routes to port 80 by default. Set WEBSITES_PORT when the
-  # container listens elsewhere (the Azure equivalent of an explicit
-  # container_port input).
-  # WEBSITES_PORT = "8080"
 }

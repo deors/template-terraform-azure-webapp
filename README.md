@@ -213,6 +213,19 @@ encryption — are documented once under
 
 ## Customization
 
+### Container Contract
+
+The template is built around the archetype's container contract: **port 8080, health endpoint `/health`**. `health_check_path` defaults to `/health`. `container_port` defaults to `8080` and sets `WEBSITES_PORT` on both the Web App and the staging slot — this is how Azure App Service learns which port the container listens on.
+
+For the public placeholder images used during initial template validation (which listen on port 80 and have no `/health` endpoint), set:
+
+```hcl
+container_port    = 80   # Real apps: 8080 (default). Placeholder: 80.
+health_check_path = "/"
+```
+
+Do not set `WEBSITES_PORT` directly in `app_settings` — `container_port` is the single source of truth and the template enforces this with a plan-time error if `WEBSITES_PORT` appears in `app_settings`.
+
 ### App Settings
 
 App-specific environment variables are passed via `app_settings` map in each environment's `.tfvars`; they become App Service app settings, exposed to the container as environment variables. Do not put secrets here — use [Key Vault Integration](#key-vault-integration) instead. Example:
@@ -400,14 +413,16 @@ tofu -chdir=terraform/environments/$ENVIRONMENT plan \
   -var="container_image=mcr.microsoft.com/azuredocs/aci-helloworld:latest" \
   -var="container_registry_url=mcr.microsoft.com" \
   -var="health_check_path=/" \
+  -var="container_port=80" \
   -out=tfplan
 ```
 
 This plan for `dev` deploys a public placeholder image
-(`mcr.microsoft.com/azuredocs/aci-helloworld`) with `health_check_path = "/"`,
-so the template can be applied and verified end to end before a real application
-image exists. Swap `container_image`, `container_registry_url`, and
-`health_check_path` for your own app's values when moving past validation.
+(`mcr.microsoft.com/azuredocs/aci-helloworld`) with `health_check_path = "/"` and
+`container_port = 80`, so the template can be applied and verified end to end before
+a real application image exists. Swap `container_image`, `container_registry_url`,
+`health_check_path`, and `container_port` for your own app's values when moving past
+validation — real apps follow the contract: port 8080, health endpoint `/health`.
 
 Review the plan output before applying — confirm the region for resources is the
 one you intended, and that the resource count matches expectations for the
@@ -440,7 +455,8 @@ tofu -chdir=terraform/environments/$ENVIRONMENT destroy \
   -var="app_name=$APP_NAME" \
   -var="container_image=mcr.microsoft.com/azuredocs/aci-helloworld:latest" \
   -var="container_registry_url=mcr.microsoft.com" \
-  -var="health_check_path=/"
+  -var="health_check_path=/" \
+  -var="container_port=80"
 ```
 
 ---
