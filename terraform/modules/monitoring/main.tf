@@ -26,56 +26,112 @@ resource "azurerm_log_analytics_workspace" "this" {
 # and organisation-specific, so the alerts surface in Azure Monitor and the
 # caller attaches actions out of band.
 #
-# Every criteria block sets skip_metric_validation. The alert API otherwise
-# validates the metric name against the target's registered metric
-# definitions, and a freshly created plan or app can take minutes to register
-# them — so an apply that creates target and alert back-to-back intermittently
-# fails with 400 "Couldn't find a metric named ...". Skipping validation
-# removes that race. The trade-off: a mistyped metric name would no longer be
-# rejected at apply time and would produce an alert that never fires, so any
-# change to a metric_name below must be checked against the platform metrics
-# reference for the target resource type.
+# The alerts are azapi_resource rather than azurerm_monitor_metric_alert.
+# The alert API validates each metric name against the target's *registered*
+# metric definitions, and registration is lazy: a fresh App Service Plan
+# takes minutes to register CpuPercentage/MemoryPercentage, and a Web App
+# registers HealthCheckStatus only once the health-check feature is probing
+# a running site. Creating target and alert back-to-back therefore fails
+# with 400 "Couldn't find a metric named ...". The skipMetricValidation
+# criterion property does not avoid it — the service honours it for custom
+# metrics only and validates platform metrics regardless — and azurerm has
+# no retry hook for the 400, so each alert uses azapi's declarative retry to
+# re-attempt creation while that specific error persists, bounded by the
+# create timeout. A mistyped metric name fails with the same message, so an
+# alert that exhausts its retries usually means the metric name is wrong for
+# the target resource type — check the platform metrics reference before
+# blaming timing.
 # ──────────────────────────────────────────────────────────────────────────────
 
-resource "azurerm_monitor_metric_alert" "cpu_high" {
-  name                = "alert-cpu-${local.prefix}"
-  resource_group_name = var.resource_group_name
-  scopes              = [var.app_service_plan_id]
-  description         = "App Service Plan CPU above ${var.alert_cpu_threshold}% (5-minute average)"
-  severity            = 2
-  frequency           = "PT1M"
-  window_size         = "PT5M"
-  tags                = local.base_tags
+data "azurerm_client_config" "current" {}
 
-  criteria {
-    metric_namespace = "Microsoft.Web/serverfarms"
-    metric_name      = "CpuPercentage"
-    aggregation      = "Average"
-    operator         = "GreaterThan"
-    threshold        = var.alert_cpu_threshold
+locals {
+  resource_group_id = "/subscriptions/${data.azurerm_client_config.current.subscription_id}/resourceGroups/${var.resource_group_name}"
 
-    skip_metric_validation = true
+  # Retry only the metric-registration race described above; any other API
+  # error still fails fast.
+  alert_retry = {
+    error_message_regex = ["Couldn't find a metric named"]
   }
 }
 
-resource "azurerm_monitor_metric_alert" "memory_high" {
-  name                = "alert-memory-${local.prefix}"
-  resource_group_name = var.resource_group_name
-  scopes              = [var.app_service_plan_id]
-  description         = "App Service Plan memory above ${var.alert_memory_threshold}% (5-minute average)"
-  severity            = 2
-  frequency           = "PT1M"
-  window_size         = "PT5M"
-  tags                = local.base_tags
+resource "azapi_resource" "cpu_high" {
+  type      = "Microsoft.Insights/metricAlerts@2018-03-01"
+  name      = "alert-cpu-${local.prefix}"
+  parent_id = local.resource_group_id
+  location  = "global"
+  tags      = local.base_tags
+  retry     = local.alert_retry
 
-  criteria {
-    metric_namespace = "Microsoft.Web/serverfarms"
-    metric_name      = "MemoryPercentage"
-    aggregation      = "Average"
-    operator         = "GreaterThan"
-    threshold        = var.alert_memory_threshold
+  body = {
+    properties = {
+      description         = "App Service Plan CPU above ${var.alert_cpu_threshold}% (5-minute average)"
+      severity            = 2
+      enabled             = true
+      autoMitigate        = true
+      scopes              = [var.app_service_plan_id]
+      evaluationFrequency = "PT1M"
+      windowSize          = "PT5M"
 
-    skip_metric_validation = true
+      criteria = {
+        "odata.type" = "Microsoft.Azure.Monitor.SingleResourceMultipleMetricCriteria"
+        allOf = [
+          {
+            criterionType   = "StaticThresholdCriterion"
+            name            = "Metric1"
+            metricNamespace = "Microsoft.Web/serverfarms"
+            metricName      = "CpuPercentage"
+            timeAggregation = "Average"
+            operator        = "GreaterThan"
+            threshold       = var.alert_cpu_threshold
+          }
+        ]
+      }
+    }
+  }
+
+  timeouts {
+    create = "15m"
+  }
+}
+
+resource "azapi_resource" "memory_high" {
+  type      = "Microsoft.Insights/metricAlerts@2018-03-01"
+  name      = "alert-memory-${local.prefix}"
+  parent_id = local.resource_group_id
+  location  = "global"
+  tags      = local.base_tags
+  retry     = local.alert_retry
+
+  body = {
+    properties = {
+      description         = "App Service Plan memory above ${var.alert_memory_threshold}% (5-minute average)"
+      severity            = 2
+      enabled             = true
+      autoMitigate        = true
+      scopes              = [var.app_service_plan_id]
+      evaluationFrequency = "PT1M"
+      windowSize          = "PT5M"
+
+      criteria = {
+        "odata.type" = "Microsoft.Azure.Monitor.SingleResourceMultipleMetricCriteria"
+        allOf = [
+          {
+            criterionType   = "StaticThresholdCriterion"
+            name            = "Metric1"
+            metricNamespace = "Microsoft.Web/serverfarms"
+            metricName      = "MemoryPercentage"
+            timeAggregation = "Average"
+            operator        = "GreaterThan"
+            threshold       = var.alert_memory_threshold
+          }
+        ]
+      }
+    }
+  }
+
+  timeouts {
+    create = "15m"
   }
 }
 
@@ -86,24 +142,45 @@ resource "azurerm_monitor_metric_alert" "memory_high" {
 # healthy percentage (0–100). Caveat: metric alerts only evaluate while data
 # is emitted, so a stopped (not merely unhealthy) app goes stale rather than
 # firing — the post-apply verify.sh "WebApp state = Running" assertion covers
-# that case instead.
-resource "azurerm_monitor_metric_alert" "health_check" {
-  name                = "alert-health-${local.prefix}"
-  resource_group_name = var.resource_group_name
-  scopes              = [var.web_app_id]
-  description         = "No Web App instance reports healthy on the health-check path (5-minute average)"
-  severity            = 1
-  frequency           = "PT1M"
-  window_size         = "PT5M"
-  tags                = local.base_tags
+# that case instead. This is also the alert the creation retry exists for:
+# HealthCheckStatus is the last metric to register, minutes after the Web App
+# starts probing.
+resource "azapi_resource" "health_check" {
+  type      = "Microsoft.Insights/metricAlerts@2018-03-01"
+  name      = "alert-health-${local.prefix}"
+  parent_id = local.resource_group_id
+  location  = "global"
+  tags      = local.base_tags
+  retry     = local.alert_retry
 
-  criteria {
-    metric_namespace = "Microsoft.Web/sites"
-    metric_name      = "HealthCheckStatus"
-    aggregation      = "Average"
-    operator         = "LessThan"
-    threshold        = 1
+  body = {
+    properties = {
+      description         = "No Web App instance reports healthy on the health-check path (5-minute average)"
+      severity            = 1
+      enabled             = true
+      autoMitigate        = true
+      scopes              = [var.web_app_id]
+      evaluationFrequency = "PT1M"
+      windowSize          = "PT5M"
 
-    skip_metric_validation = true
+      criteria = {
+        "odata.type" = "Microsoft.Azure.Monitor.SingleResourceMultipleMetricCriteria"
+        allOf = [
+          {
+            criterionType   = "StaticThresholdCriterion"
+            name            = "Metric1"
+            metricNamespace = "Microsoft.Web/sites"
+            metricName      = "HealthCheckStatus"
+            timeAggregation = "Average"
+            operator        = "LessThan"
+            threshold       = 1
+          }
+        ]
+      }
+    }
+  }
+
+  timeouts {
+    create = "15m"
   }
 }
