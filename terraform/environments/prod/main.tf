@@ -85,7 +85,8 @@ module "webapp" {
   container_registry_password             = var.container_registry_password
   container_registry_resource_group_name  = var.container_registry_resource_group_name
 
-  app_settings = var.app_settings
+  container_port = var.container_port
+  app_settings   = var.app_settings
 
   # Networking – VNet integration + private endpoint, public endpoint closed.
   # Production is never publicly reachable; all ingress arrives through the

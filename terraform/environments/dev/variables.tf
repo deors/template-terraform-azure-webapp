@@ -49,6 +49,12 @@ variable "health_check_path" {
   default     = "/health"
 }
 
+variable "container_port" {
+  description = "TCP port the application container listens on. Default 8080; use 80 for plain placeholder images."
+  type        = number
+  default     = 8080
+}
+
 variable "app_settings" {
   description = "Additional application settings / environment variables"
   type        = map(string)

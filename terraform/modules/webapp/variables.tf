@@ -94,6 +94,13 @@ variable "container_registry_password" {
   sensitive   = true
 }
 
+# Container port
+variable "container_port" {
+  description = "TCP port the application container listens on"
+  type        = number
+  default     = 8080
+}
+
 # App settings
 variable "app_settings" {
   description = "Application settings (environment variables). Do not put secrets here; use key_vault_secrets instead."

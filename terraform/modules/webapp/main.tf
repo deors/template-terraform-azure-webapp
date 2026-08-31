@@ -207,6 +207,9 @@ resource "azurerm_linux_web_app" "this" {
       # Avoid credential-based deployments
       WEBSITES_ENABLE_APP_SERVICE_STORAGE = "false"
       DOCKER_ENABLE_CI                    = "false"
+
+      # Container port contract: App Service routes to this port inside the container
+      WEBSITES_PORT = tostring(var.container_port)
     },
     var.app_settings,
     local.kv_app_settings,
@@ -244,6 +247,11 @@ resource "azurerm_linux_web_app" "this" {
     precondition {
       condition     = !(var.container_registry_use_managed_identity && var.container_registry_username != "")
       error_message = "container_registry_use_managed_identity and container_registry_username are mutually exclusive — managed identity is the ACR path, username/password the GHCR/Docker Hub path."
+    }
+
+    precondition {
+      condition     = !contains(keys(var.app_settings), "WEBSITES_PORT")
+      error_message = "Do not set WEBSITES_PORT in app_settings — use container_port to declare the container's listening port. container_port is the single source of truth and sets WEBSITES_PORT automatically."
     }
   }
 }
@@ -291,7 +299,7 @@ resource "azurerm_linux_web_app_slot" "staging" {
       ApplicationInsightsAgent_EXTENSION_VERSION = "~3"
       APPLICATIONINSIGHTS_ROLE_NAME              = "${local.prefix}-staging"
       WEBSITES_ENABLE_APP_SERVICE_STORAGE        = "false"
-
+      WEBSITES_PORT                              = tostring(var.container_port)
     },
     var.app_settings,
     local.kv_app_settings,
