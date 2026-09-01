@@ -217,18 +217,20 @@ encryption — are documented once under
 
 The template is built around the archetype's container contract: **port 8080, health endpoint `/health`**. `health_check_path` defaults to `/health`. `container_port` defaults to `8080` and sets `WEBSITES_PORT` on both the Web App and the staging slot — this is how Azure App Service learns which port the container listens on.
 
-For the public placeholder images used during initial template validation (which listen on port 80 and have no `/health` endpoint), set:
-
-```hcl
-container_port    = 80   # Real apps: 8080 (default). Placeholder: 80.
-health_check_path = "/"
-```
-
 Do not set `WEBSITES_PORT` directly in `app_settings` — `container_port` is the single source of truth and the template enforces this with a plan-time error if `WEBSITES_PORT` appears in `app_settings`.
 
 ### App Settings
 
-App-specific environment variables are passed via `app_settings` map in each environment's `.tfvars`; they become App Service app settings, exposed to the container as environment variables. Do not put secrets here — use [Key Vault Integration](#key-vault-integration) instead. Example:
+App-specific environment variables are passed via `app_settings` map in each
+environment's `.tfvars`; they become plain environment variables on the
+container. Do not put secrets here — use
+[Key Vault Integration](#key-vault-integration) instead.
+
+The template always injects the archetype's environment-variable contract:
+`PORT` (via `WEBSITES_PORT`, from `container_port`), `APP_NAME`, `APP_ENV`
+(the environment name), and `IMAGE_TAG` (parsed from the image reference).
+Applications should read these rather than invent their own names; a key
+redefined in `app_settings` overrides the injected value. Example:
 
 ```hcl
 app_settings = {
@@ -236,6 +238,14 @@ app_settings = {
   API_KEY      = "..."
 }
 ```
+
+Terraform owns these settings only at creation: it seeds the initial set and
+then ignores drift on them. From the first deployment onwards the pipeline
+owns them — it restamps the identity variables on each deploy and adds new
+settings as the application evolves, and a re-apply never strips them. The
+flip side: changing these inputs in Terraform affects only newly created
+stacks; on a running app, settings are applied through the deployment
+pipeline.
 
 ### Key Vault Integration
 

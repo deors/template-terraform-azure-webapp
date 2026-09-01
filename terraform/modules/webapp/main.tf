@@ -18,6 +18,14 @@ locals {
 
   kv_name = var.key_vault_id != "" ? reverse(split("/", var.key_vault_id))[0] : ""
 
+  # Tag from the image reference: after "@" for digest pins; otherwise only the
+  # last path segment may carry a tag (a ":" in an earlier segment is a
+  # registry port, e.g. "registry:5000/img").
+  image_last_segment = element(split("/", var.container_image), length(split("/", var.container_image)) - 1)
+  image_tag = strcontains(var.container_image, "@") ? split("@", var.container_image)[1] : (
+    strcontains(local.image_last_segment, ":") ? split(":", local.image_last_segment)[1] : "latest"
+  )
+
   # Create a local Application Insights resource only when no external one is provided
   create_app_insights = var.application_insights_connection_string == ""
 
@@ -210,6 +218,11 @@ resource "azurerm_linux_web_app" "this" {
 
       # Container port contract: App Service routes to this port inside the container
       WEBSITES_PORT = tostring(var.container_port)
+
+      # App identity contract; the pipeline restamps these on each deploy
+      APP_NAME  = var.name
+      APP_ENV   = var.environment
+      IMAGE_TAG = local.image_tag
     },
     var.app_settings,
     local.kv_app_settings,
@@ -232,16 +245,32 @@ resource "azurerm_linux_web_app" "this" {
   virtual_network_subnet_id = var.virtual_network_subnet_id != "" ? var.virtual_network_subnet_id : null
 
   lifecycle {
-    # CI/CD owns the container after first apply: image, registry URL, and
-    # any registry credentials all live in `application_stack`. Ignoring
-    # only `docker_image_name` left `docker_registry_url` exposed — when CI
-    # deploys to a different registry than var.container_registry_url, the
-    # plan recomposes the whole block and reverts the image to the var.
-    # Ignoring the whole nested block lets re-runs reconcile everything
-    # else (TLS, health check, app_settings, etc.) without disturbing the
-    # deployed app.
+    # CI/CD owns the running application after first apply. Two attributes
+    # are therefore ignored once the app exists:
+    #
+    # - `application_stack` — image, registry URL, and any registry
+    #   credentials. Ignoring only `docker_image_name` left
+    #   `docker_registry_url` exposed: when CI deploys to a different
+    #   registry than var.container_registry_url, the plan recomposes the
+    #   whole block and reverts the image to the var. Ignoring the whole
+    #   nested block avoids that.
+    # - `app_settings` — Terraform seeds the initial settings at creation
+    #   (observability wiring, the port contract, Key Vault references, the
+    #   caller's app_settings) and then hands ownership to the deployment
+    #   pipeline, which stamps the app identity (e.g. APP_ENV, IMAGE_TAG)
+    #   and whatever settings the application grows to need. Without this,
+    #   any re-provision would strip the pipeline-managed settings and
+    #   restart the app with stale configuration. Trade-off: post-creation
+    #   changes to var.app_settings, key_vault_secrets, container_port, or
+    #   the Application Insights wiring no longer reconcile onto an
+    #   existing app — apply them through the pipeline
+    #   (az webapp config appsettings set) or recreate the app.
+    #
+    # Re-runs still reconcile everything else (TLS, health check,
+    # networking, identity) without disturbing the deployed app.
     ignore_changes = [
       site_config[0].application_stack,
+      app_settings,
     ]
 
     precondition {
@@ -300,17 +329,21 @@ resource "azurerm_linux_web_app_slot" "staging" {
       APPLICATIONINSIGHTS_ROLE_NAME              = "${local.prefix}-staging"
       WEBSITES_ENABLE_APP_SERVICE_STORAGE        = "false"
       WEBSITES_PORT                              = tostring(var.container_port)
+      APP_NAME                                   = var.name
+      APP_ENV                                    = var.environment
+      IMAGE_TAG                                  = local.image_tag
     },
     var.app_settings,
     local.kv_app_settings,
   )
 
   lifecycle {
-    # Same rationale as the main app: post-create the slot's container is
-    # owned by CI/CD (slot swaps, manual deploys), so ignore the whole
-    # application_stack block.
+    # Same rationale as the main app: post-create the slot's container and
+    # app settings are owned by CI/CD (slot swaps, manual deploys), so
+    # ignore the whole application_stack block and app_settings.
     ignore_changes = [
       site_config[0].application_stack,
+      app_settings,
     ]
   }
 }
