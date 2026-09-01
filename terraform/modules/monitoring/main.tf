@@ -29,14 +29,20 @@ resource "azurerm_log_analytics_workspace" "this" {
 # The alerts are azapi_resource rather than azurerm_monitor_metric_alert.
 # The alert API validates each metric name against the target's *registered*
 # metric definitions, and registration is lazy: a fresh App Service Plan
-# takes minutes to register CpuPercentage/MemoryPercentage, and a Web App
-# registers HealthCheckStatus only once the health-check feature is probing
-# a running site. Creating target and alert back-to-back therefore fails
-# with 400 "Couldn't find a metric named ...". The skipMetricValidation
-# criterion property does not avoid it — the service honours it for custom
-# metrics only and validates platform metrics regardless — and azurerm has
-# no retry hook for the 400, so each alert uses azapi's declarative retry to
-# re-attempt creation while that specific error persists, bounded by the
+# emits CpuPercentage/MemoryPercentage only once a running app instance
+# exists on it, and a Web App registers HealthCheckStatus only once the
+# health-check feature is probing a running site. Creating target and alert
+# back-to-back therefore fails with 400 "Couldn't find a metric named ...".
+# The skipMetricValidation criterion property does not avoid it — the
+# service honours it for custom metrics only and validates platform metrics
+# regardless.
+#
+# The cpu_high and memory_high alerts tag themselves with var.web_app_id.
+# This creates an implicit Terraform dependency on the web app resource, so
+# those alerts start only after the web app exists (and its container begins
+# emitting plan-level metrics), rather than immediately after the App Service
+# Plan is created. The azapi declarative retry then handles the remaining
+# gap between web app creation and first metric emission, bounded by the
 # create timeout. A mistyped metric name fails with the same message, so an
 # alert that exhausts its retries usually means the metric name is wrong for
 # the target resource type — check the platform metrics reference before
@@ -60,7 +66,7 @@ resource "azapi_resource" "cpu_high" {
   name      = "alert-cpu-${local.prefix}"
   parent_id = local.resource_group_id
   location  = "global"
-  tags      = local.base_tags
+  tags      = merge(local.base_tags, { monitored-app = var.web_app_id })
   retry     = local.alert_retry
 
   body = {
@@ -100,7 +106,7 @@ resource "azapi_resource" "memory_high" {
   name      = "alert-memory-${local.prefix}"
   parent_id = local.resource_group_id
   location  = "global"
-  tags      = local.base_tags
+  tags      = merge(local.base_tags, { monitored-app = var.web_app_id })
   retry     = local.alert_retry
 
   body = {
