@@ -43,7 +43,9 @@ resource "azurerm_log_analytics_workspace" "this" {
 # emitting plan-level metrics), rather than immediately after the App Service
 # Plan is created. The azapi declarative retry then handles the remaining
 # gap between web app creation and first metric emission, bounded by the
-# create timeout. A mistyped metric name fails with the same message, so an
+# create timeout. The alert API's view of the metric definitions can lag the
+# actual first emission by well over 15 minutes, hence the 30m timeout.
+# A mistyped metric name fails with the same message, so an
 # alert that exhausts its retries usually means the metric name is wrong for
 # the target resource type — check the platform metrics reference before
 # blaming timing.
@@ -97,7 +99,7 @@ resource "azapi_resource" "cpu_high" {
   }
 
   timeouts {
-    create = "15m"
+    create = "30m"
   }
 }
 
@@ -137,7 +139,7 @@ resource "azapi_resource" "memory_high" {
   }
 
   timeouts {
-    create = "15m"
+    create = "30m"
   }
 }
 
@@ -187,6 +189,6 @@ resource "azapi_resource" "health_check" {
   }
 
   timeouts {
-    create = "15m"
+    create = "30m"
   }
 }
