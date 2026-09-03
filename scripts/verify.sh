@@ -285,6 +285,18 @@ if [[ "$EXPECTED_SLOT" == true ]]; then
   SLOT_STATE=$(az webapp deployment slot list -n "$APP" -g "$RG" \
     --query "[?name=='staging'].state | [0]" -o tsv 2>/dev/null || echo "missing")
   assert_eq "Staging slot state" "${SLOT_STATE:-missing}" "Running"
+
+  # Swap-readiness: health check swaps with the general site config, so the
+  # slot must mirror the app; the App Insights role name labels the slot, not
+  # the container, so it must be pinned as a sticky (slot) setting.
+  APP_HEALTH_PATH=$(jq -r '.healthCheckPath // "missing"' <<<"$CFG_JSON")
+  SLOT_HEALTH_PATH=$(az webapp config show -n "$APP" -g "$RG" --slot staging \
+    --query healthCheckPath -o tsv 2>/dev/null || echo "missing")
+  assert_eq "Slot healthCheckPath mirrors app" "${SLOT_HEALTH_PATH:-missing}" "$APP_HEALTH_PATH"
+
+  ROLE_NAME_STICKY=$(az webapp config appsettings list -n "$APP" -g "$RG" -o json 2>/dev/null \
+    | jq -r '[.[] | select(.name=="APPLICATIONINSIGHTS_ROLE_NAME")][0].slotSetting // "missing"')
+  assert_eq "APPLICATIONINSIGHTS_ROLE_NAME is sticky" "$ROLE_NAME_STICKY" "true"
 else
   pass "Staging slot not provisioned (not expected for $ENVIRONMENT)"
 fi

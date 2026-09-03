@@ -228,6 +228,13 @@ resource "azurerm_linux_web_app" "this" {
     local.kv_app_settings,
   )
 
+  # Settings pinned to each slot during a swap. The role name labels the
+  # slot, not the deployed container, so it must not travel with a swap;
+  # everything else (IMAGE_TAG included) follows the container.
+  sticky_settings {
+    app_setting_names = ["APPLICATIONINSIGHTS_ROLE_NAME"]
+  }
+
   # ── Logging ───────────────────────────────────────────────────────────────
   logs {
     detailed_error_messages = true
@@ -310,6 +317,12 @@ resource "azurerm_linux_web_app_slot" "staging" {
     # Same rationale as the main app: the slot's SCM endpoint defaults to 1.2.
     scm_minimum_tls_version = var.minimum_tls_version
     ftps_state              = "Disabled"
+
+    # Health check swaps with the general site config, so the slot must
+    # mirror the app or a swap would strip it from production; it also gives
+    # the platform a warmup probe before the swap completes.
+    health_check_path                 = var.health_check_path
+    health_check_eviction_time_in_min = var.health_check_eviction_time_in_min
 
     application_stack {
       docker_image_name        = var.container_image
