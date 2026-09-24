@@ -41,9 +41,8 @@ The end-to-end test client is assigned to the API's `E2E.Access` role, and
 that Graph call needs `AppRoleAssignment.ReadWrite.All` plus
 `Application.Read.All` on the identity running Terraform, with admin consent.
 `Application.ReadWrite.OwnedBy` alone covers the registrations, secrets and
-redirect URIs but not assignments. Grant the two permissions (see
-[Authentication](AUTHENTICATION.md#prerequisites-on-the-provisioning-identity))
-and re-run the apply; every other resource is already in place.
+redirect URIs but not assignments. Grant the two permissions with admin
+consent and re-run the apply; every other resource is already in place.
 
 ### Users see `AADSTS50105: The signed in user is not assigned to a role for the application`
 

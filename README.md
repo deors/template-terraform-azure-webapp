@@ -362,9 +362,12 @@ Inputs: `auth_enabled` (default `true`) switches the whole feature and
 `auth_admins` names the owners; the module also accepts
 `auth_unauthenticated_action` (`Return401` for pure APIs) and
 `auth_excluded_paths`. The identity running Terraform needs Microsoft
-Graph permissions to create the registrations and the test client's role
-assignment. The full design, the permission list and the token flow are in
-[docs/AUTHENTICATION.md](docs/AUTHENTICATION.md).
+Graph application permissions, with admin consent, to create the
+registrations and the test client's role assignment:
+`Application.ReadWrite.OwnedBy`, `AppRoleAssignment.ReadWrite.All` and
+`Application.Read.All` (plus `User.Read.All` only when `auth_admins` carries
+user principal names). The token flow the end-to-end client uses is the one
+`scripts/verify.sh` runs against dev after every apply.
 
 ---
 
