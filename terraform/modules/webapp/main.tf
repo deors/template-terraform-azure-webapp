@@ -13,10 +13,10 @@ locals {
   kv_app_settings = {
     for setting_name, secret_name in var.key_vault_secrets :
     setting_name => "@Microsoft.KeyVault(VaultName=${local.kv_name};SecretName=${secret_name})"
-    if var.key_vault_id != ""
+    if var.key_vault_enabled
   }
 
-  kv_name = var.key_vault_id != "" ? reverse(split("/", var.key_vault_id))[0] : ""
+  kv_name = var.key_vault_enabled ? reverse(split("/", var.key_vault_id))[0] : ""
 
   # Tag from the image reference: after "@" for digest pins; otherwise only the
   # last path segment may carry a tag (a ":" in an earlier segment is a
@@ -37,6 +37,21 @@ locals {
   # value is known at plan time (subnet IDs are computed and would force the
   # count to "known after apply").
   create_private_endpoint = var.private_endpoint_enabled
+
+  # App Service authentication reads its client secret from the vault, never
+  # from a plaintext setting. Merged last so no caller setting can shadow it.
+  auth_app_settings = var.auth_enabled ? {
+    MICROSOFT_PROVIDER_AUTHENTICATION_SECRET = "@Microsoft.KeyVault(VaultName=${local.kv_name};SecretName=${azurerm_key_vault_secret.easyauth_client_secret[0].name})"
+  } : {}
+
+  auth_tenant_endpoint = "https://login.microsoftonline.com/${data.azuread_client_config.current.tenant_id}/v2.0"
+
+  # The platform probe authenticates itself; excluding the health path serves
+  # external monitors. "/" is never excluded, or the whole root would be open.
+  auth_excluded_paths = distinct(concat(
+    [for p in [var.health_check_path] : p if p != "/"],
+    var.auth_excluded_paths,
+  ))
 }
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -71,7 +86,7 @@ resource "azurerm_application_insights" "this" {
 # Key Vault access policy: allow the managed identity to read secrets
 # ──────────────────────────────────────────────────────────────────────────────
 resource "azurerm_key_vault_access_policy" "webapp" {
-  count = var.key_vault_id != "" ? 1 : 0
+  count = var.key_vault_enabled ? 1 : 0
 
   key_vault_id = var.key_vault_id
   tenant_id    = azurerm_user_assigned_identity.this.tenant_id
@@ -153,6 +168,10 @@ resource "azurerm_linux_web_app" "this" {
     identity_ids = [azurerm_user_assigned_identity.this.id]
   }
 
+  # Key Vault references resolve with this identity; the default would be the
+  # system-assigned one, which this app does not have.
+  key_vault_reference_identity_id = var.key_vault_enabled ? azurerm_user_assigned_identity.this.id : null
+
   # ── Site configuration ────────────────────────────────────────────────────
   site_config {
     always_on           = true
@@ -226,7 +245,35 @@ resource "azurerm_linux_web_app" "this" {
     },
     var.app_settings,
     local.kv_app_settings,
+    local.auth_app_settings,
   )
+
+  # ── Authentication ────────────────────────────────────────────────────────
+  dynamic "auth_settings_v2" {
+    for_each = var.auth_enabled ? [1] : []
+    content {
+      auth_enabled           = true
+      require_authentication = true
+      require_https          = true
+      unauthenticated_action = var.auth_unauthenticated_action
+      default_provider       = "azureactivedirectory"
+      excluded_paths         = local.auth_excluded_paths
+
+      active_directory_v2 {
+        client_id                  = azuread_application_registration.auth[0].client_id
+        tenant_auth_endpoint       = local.auth_tenant_endpoint
+        client_secret_setting_name = "MICROSOFT_PROVIDER_AUTHENTICATION_SECRET"
+        allowed_audiences          = local.auth_allowed_audiences
+        allowed_applications       = local.auth_allowed_applications
+      }
+
+      # No downstream calls on the user's behalf, so nothing to store; the
+      # token store would also need persistent storage the container disables.
+      login {
+        token_store_enabled = false
+      }
+    }
+  }
 
   # Settings pinned to each slot during a swap. The role name labels the
   # slot, not the deployed container, so it must not travel with a swap;
@@ -289,6 +336,11 @@ resource "azurerm_linux_web_app" "this" {
       condition     = !contains(keys(var.app_settings), "WEBSITES_PORT")
       error_message = "Do not set WEBSITES_PORT in app_settings — use container_port to declare the container's listening port. container_port is the single source of truth and sets WEBSITES_PORT automatically."
     }
+
+    precondition {
+      condition     = !var.auth_enabled || var.key_vault_enabled
+      error_message = "auth_enabled requires key_vault_enabled and key_vault_id — the authentication client secret and the end-to-end test credentials are stored in that vault."
+    }
   }
 }
 
@@ -309,6 +361,8 @@ resource "azurerm_linux_web_app_slot" "staging" {
     type         = "UserAssigned"
     identity_ids = [azurerm_user_assigned_identity.this.id]
   }
+
+  key_vault_reference_identity_id = var.key_vault_enabled ? azurerm_user_assigned_identity.this.id : null
 
   site_config {
     always_on           = false # staging slot does not need to stay warm
@@ -348,7 +402,33 @@ resource "azurerm_linux_web_app_slot" "staging" {
     },
     var.app_settings,
     local.kv_app_settings,
+    local.auth_app_settings,
   )
+
+  # Authentication swaps with the site config, so the slot mirrors the app.
+  dynamic "auth_settings_v2" {
+    for_each = var.auth_enabled ? [1] : []
+    content {
+      auth_enabled           = true
+      require_authentication = true
+      require_https          = true
+      unauthenticated_action = var.auth_unauthenticated_action
+      default_provider       = "azureactivedirectory"
+      excluded_paths         = local.auth_excluded_paths
+
+      active_directory_v2 {
+        client_id                  = azuread_application_registration.auth[0].client_id
+        tenant_auth_endpoint       = local.auth_tenant_endpoint
+        client_secret_setting_name = "MICROSOFT_PROVIDER_AUTHENTICATION_SECRET"
+        allowed_audiences          = local.auth_allowed_audiences
+        allowed_applications       = local.auth_allowed_applications
+      }
+
+      login {
+        token_store_enabled = false
+      }
+    }
+  }
 
   lifecycle {
     # Same rationale as the main app: post-create the slot's container and
@@ -400,6 +480,209 @@ resource "azapi_resource_action" "end_to_end_encryption_slot" {
       }
     }
   }
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Authentication (Microsoft Entra ID via App Service authentication)
+#
+# Two app registrations: the API itself (what browsers sign in to and what
+# tokens are issued for) and a confidential client for non-interactive
+# end-to-end tests, which obtains tokens with the client-credentials grant.
+# Sign-in is by assignment: the enterprise application requires it, people are
+# assigned to the User role by the app's owners outside Terraform, and the
+# test client is assigned to E2E.Access here.
+# ──────────────────────────────────────────────────────────────────────────────
+data "azuread_client_config" "current" {}
+
+locals {
+  auth_client_id = var.auth_enabled ? azuread_application_registration.auth[0].client_id : ""
+  e2e_client_id  = var.auth_enabled ? azuread_application_registration.e2e[0].client_id : ""
+
+  # v2 tokens carry the client ID as audience; the identifier URI form is what
+  # clients request (scope api://<id>/.default), so accept both.
+  auth_allowed_audiences    = var.auth_enabled ? [local.auth_client_id, "api://${local.auth_client_id}"] : []
+  auth_allowed_applications = var.auth_enabled ? [local.auth_client_id, local.e2e_client_id] : []
+
+  # Owners manage assignments. The deployer stays an owner so it can keep
+  # managing the enterprise application on later applies.
+  auth_admin_object_ids = [for a in var.auth_admins : a if can(regex("^[0-9a-fA-F-]{36}$", a))]
+  auth_admin_upns       = [for a in var.auth_admins : a if !can(regex("^[0-9a-fA-F-]{36}$", a))]
+  auth_owner_ids = distinct(concat(
+    [data.azuread_client_config.current.object_id],
+    local.auth_admin_object_ids,
+    length(local.auth_admin_upns) > 0 && var.auth_enabled ? data.azuread_users.auth_admins[0].object_ids : [],
+  ))
+}
+
+data "azuread_users" "auth_admins" {
+  count = var.auth_enabled && length(local.auth_admin_upns) > 0 ? 1 : 0
+
+  user_principal_names = local.auth_admin_upns
+}
+
+resource "azuread_application_registration" "auth" {
+  count = var.auth_enabled ? 1 : 0
+
+  display_name     = "app-${local.prefix}"
+  description      = "App Service authentication for ${local.prefix}"
+  sign_in_audience = "AzureADMyOrg"
+
+  # The sign-in flow requests an ID token alongside the code.
+  implicit_id_token_issuance_enabled = true
+  requested_access_token_version     = 2
+}
+
+resource "azuread_application_identifier_uri" "auth" {
+  count = var.auth_enabled ? 1 : 0
+
+  application_id = azuread_application_registration.auth[0].id
+  identifier_uri = "api://${azuread_application_registration.auth[0].client_id}"
+}
+
+resource "azuread_application_app_role" "user" {
+  count = var.auth_enabled ? 1 : 0
+
+  application_id       = azuread_application_registration.auth[0].id
+  role_id              = uuidv5("url", "https://${local.prefix}/roles/user")
+  allowed_member_types = ["User"]
+  display_name         = "User"
+  description          = "Interactive access, granted by the application's owners"
+  value                = "User"
+}
+
+# Role the test client is assigned to.
+resource "azuread_application_app_role" "e2e" {
+  count = var.auth_enabled ? 1 : 0
+
+  application_id       = azuread_application_registration.auth[0].id
+  role_id              = uuidv5("url", "https://${local.prefix}/roles/e2e-access")
+  allowed_member_types = ["Application"]
+  display_name         = "End-to-end tests"
+  description          = "Non-interactive access for the end-to-end test client"
+  value                = "E2E.Access"
+}
+
+resource "azuread_service_principal" "auth" {
+  count = var.auth_enabled ? 1 : 0
+
+  client_id                    = azuread_application_registration.auth[0].client_id
+  app_role_assignment_required = true
+  owners                       = local.auth_owner_ids
+  description                  = "Sign-in for ${local.prefix}; only assigned users and clients"
+
+  # Without this tag the portal's Enterprise applications list hides the app
+  # behind its default filter.
+  feature_tags {
+    enterprise = true
+  }
+}
+
+# Secrets are valid for two years from creation; the expiry is fixed at create
+# time (ignore_changes), so rotation is an explicit replace of this resource.
+resource "azuread_application_password" "auth" {
+  count = var.auth_enabled ? 1 : 0
+
+  application_id = azuread_application_registration.auth[0].id
+  display_name   = "app-service-authentication"
+  end_date       = timeadd(timestamp(), "17520h")
+
+  lifecycle {
+    ignore_changes = [end_date]
+  }
+}
+
+# Callback URLs need the hostnames, which exist only after the app is created;
+# a separate resource avoids a cycle between the registration and the app.
+resource "azuread_application_redirect_uris" "auth" {
+  count = var.auth_enabled ? 1 : 0
+
+  application_id = azuread_application_registration.auth[0].id
+  type           = "Web"
+  redirect_uris = concat(
+    ["https://${azurerm_linux_web_app.this.default_hostname}/.auth/login/aad/callback"],
+    var.deployment_slot_enabled ? ["https://${azurerm_linux_web_app_slot.staging[0].default_hostname}/.auth/login/aad/callback"] : [],
+  )
+}
+
+resource "azuread_application_registration" "e2e" {
+  count = var.auth_enabled ? 1 : 0
+
+  display_name     = "app-${local.prefix}-e2e"
+  description      = "End-to-end test client for ${local.prefix}"
+  sign_in_audience = "AzureADMyOrg"
+
+  requested_access_token_version = 2
+}
+
+resource "azuread_service_principal" "e2e" {
+  count = var.auth_enabled ? 1 : 0
+
+  client_id = azuread_application_registration.e2e[0].client_id
+}
+
+resource "azuread_application_password" "e2e" {
+  count = var.auth_enabled ? 1 : 0
+
+  application_id = azuread_application_registration.e2e[0].id
+  display_name   = "end-to-end-tests"
+  end_date       = timeadd(timestamp(), "17520h")
+
+  lifecycle {
+    ignore_changes = [end_date]
+  }
+}
+
+resource "azuread_app_role_assignment" "e2e" {
+  count = var.auth_enabled ? 1 : 0
+
+  app_role_id         = azuread_application_app_role.e2e[0].role_id
+  principal_object_id = azuread_service_principal.e2e[0].object_id
+  resource_object_id  = azuread_service_principal.auth[0].object_id
+}
+
+# Secrets land in the vault: the sign-in client secret is read by App Service
+# through a Key Vault reference; the test credentials are read by the tests.
+resource "azurerm_key_vault_secret" "easyauth_client_secret" {
+  count = var.auth_enabled ? 1 : 0
+
+  name            = "easyauth-client-secret"
+  value           = azuread_application_password.auth[0].value
+  key_vault_id    = var.key_vault_id
+  content_type    = "text/plain"
+  expiration_date = azuread_application_password.auth[0].end_date
+  tags            = local.base_tags
+}
+
+locals {
+  e2e_secrets = var.auth_enabled ? {
+    "e2e-tenant-id" = data.azuread_client_config.current.tenant_id
+    "e2e-client-id" = azuread_application_registration.e2e[0].client_id
+    "e2e-scope"     = "api://${azuread_application_registration.auth[0].client_id}/.default"
+  } : {}
+}
+
+# Non-secret coordinates of the test client, kept next to its secret so tests
+# read everything from one place.
+resource "azurerm_key_vault_secret" "e2e" {
+  for_each = local.e2e_secrets
+
+  name            = each.key
+  value           = each.value
+  key_vault_id    = var.key_vault_id
+  content_type    = "text/plain"
+  expiration_date = azuread_application_password.e2e[0].end_date
+  tags            = local.base_tags
+}
+
+resource "azurerm_key_vault_secret" "e2e_client_secret" {
+  count = var.auth_enabled ? 1 : 0
+
+  name            = "e2e-client-secret"
+  value           = azuread_application_password.e2e[0].value
+  key_vault_id    = var.key_vault_id
+  content_type    = "text/plain"
+  expiration_date = azuread_application_password.e2e[0].end_date
+  tags            = local.base_tags
 }
 
 # ──────────────────────────────────────────────────────────────────────────────

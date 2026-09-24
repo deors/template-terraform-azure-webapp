@@ -22,6 +22,8 @@ When used with the **workshop-platform-eng** provisioning workflow:
 | **Private Endpoint** | Private inbound access to Web App | All environments |
 | **App Service Plan** | Compute hosting the container | Yes (P0v3/dev, P1v3/staging, P2v3/prod with zone redundancy) |
 | **Web App** | Container runtime with managed identity, HTTPS-only, health checks | Yes (per env with env-specific settings) |
+| **Authentication** | Microsoft Entra ID sign-in enforced by App Service on the Web App and its slot; access by assignment, managed by the app's owners, plus a non-interactive end-to-end test client | All environments |
+| **Key Vault** | Application secrets and the authentication credentials, referenced from app settings | Yes (purge protection in prod) |
 | **Autoscale Rules** | Dynamic instance scaling (CPU, memory) | Staging & Prod only |
 | **Deployment Slot** | Staging slot for zero-downtime blue/green swaps | Staging & Prod only |
 | **Log Analytics** | Centralized log aggregates | Yes (retention: 30/60/90 days per env) |
@@ -36,7 +38,7 @@ Each environment gets its own resource group named `rg-<app_name>-<env>` (for ex
 
 | Group | Contains | Created by |
 |---|---|---|
-| `rg-<app_name>-<env>` | All resources for one environment — VNet, App Service Plan, Web App, Private Endpoint, Log Analytics Workspace, Application Insights, metric alerts, NSGs, Private DNS Zone, and VNet Flow Log storage | Terraform, in this repo (per environment) |
+| `rg-<app_name>-<env>` | All resources for one environment — VNet, App Service Plan, Web App, Private Endpoint, Key Vault, Log Analytics Workspace, Application Insights, metric alerts, NSGs, Private DNS Zone, and VNet Flow Log storage | Terraform, in this repo (per environment) |
 | `rg-<app_name>-tfstate` | The Terraform state storage account | Bootstrap script in **workshop-platform-eng** |
 
 An Azure resource group is a container, not a query: every resource lives in exactly one group, and deleting the group deletes its contents. That makes the environment group the containment boundary for everything this template creates.
@@ -79,9 +81,10 @@ terraform/
 │   └── prod/          # Production environment (P2v3, zone-redundant, 3+ instances, PE-only)
 │
 └── modules/
+    ├── keyvault/      # Key Vault for application secrets and authentication credentials
     ├── monitoring/    # Log Analytics Workspace, metric alerts
     ├── networking/    # VNet, Subnets, NSGs, Private DNS, Flow Logs
-    └── webapp/        # App Service Plan, Web App, Identity, ACI, Private Endpoint, Autoscale, Diagnostics
+    └── webapp/        # App Service Plan, Web App, Identity, Authentication, Private Endpoint, Autoscale, Diagnostics
 
 scripts/
 └── verify.sh          # Post-apply control-plane verification (see below)
@@ -140,14 +143,20 @@ Private Endpoint, diagnostic settings, Log Analytics (including per-environment
 retention: 30/60/90 days), Application Insights, metric alerts (CPU, memory,
 health — existence and enablement, since evaluation state needs metric history a
 fresh apply lacks), autoscale, networking (VNet, subnets, flow-log storage),
-staging slot, and public endpoint.
+staging slot, Key Vault (soft delete, purge protection, the seeded
+authentication secrets), authentication (enabled on the app and mirrored on
+the slot, health check path excluded, assignment required, test client
+assigned, assigned people listed), and public endpoint.
 
 All but the last are control-plane assertions. The **public endpoint** group is
-the one that sends real traffic: it issues an HTTPS `GET` against the default
-`*.azurewebsites.net` hostname and expects `200`. Because `curl` validates the
-certificate chain by default, this doubles as a check that Azure's wildcard
-certificate is serving correctly — a TLS failure surfaces as `000`, not a status
-code.
+the one that sends real traffic against the default `*.azurewebsites.net`
+hostname: an unauthenticated `GET /` must get `401` as an API client and a
+`302` to sign-in as a browser, the health check path must answer `200` without
+credentials (unless it is `/`, which stays behind sign-in), and a `GET /`
+with a token obtained as the end-to-end test client (credentials read from the
+Key Vault) must answer `200`. Because `curl` validates the certificate chain by
+default, this doubles as a check that Azure's wildcard certificate is serving
+correctly — a TLS failure surfaces as `000`, not a status code.
 
 That probe runs for **dev only**, which keeps its public endpoint open for
 exactly this purpose. Staging and prod are reachable only through the Private
@@ -184,7 +193,8 @@ encryption — are documented once under
 | **VNet CIDR** | `10.10.0.0/16` | `10.20.0.0/16` | `10.30.0.0/16` |
 | **Log retention** | 30 days | 60 days | 90 days |
 | **Deployment slot** | Disabled | Enabled — pre-swap validation | Enabled — zero-downtime blue/green swaps |
-| **Post-apply probe** | HTTPS `GET` on the default hostname, expects `200` | Control plane only | Control plane only |
+| **Key Vault purge protection** | Off — the vault can be purged after a teardown | Off | On — irreversible; a deleted vault stays recoverable, not recreatable, for 90 days |
+| **Post-apply probe** | HTTPS on the default hostname: `401`/`302` unauthenticated (API/browser), `200` on the health path, `200` as the end-to-end client | Control plane only | Control plane only |
 | **Checkov baseline** | `.checkov.nonprod.yaml` (relaxed) | `.checkov.nonprod.yaml` (relaxed) | `.checkov.yaml` (strict) |
 
 ---
@@ -199,8 +209,10 @@ encryption — are documented once under
 
 ### Identity & Access
 
+- **Authentication**: Microsoft Entra ID sign-in enforced by App Service on the Web App and its slot, in every environment. Only people assigned to the app's enterprise application sign in; its owners manage that list outside Terraform. A non-interactive client exists for end-to-end tests. See [Authentication](#authentication).
+- **Secrets**: One Key Vault per environment holds the authentication credentials and the application's own secrets; the app reads them through Key Vault references with its managed identity, never from plaintext settings. See [Key Vault Integration](#key-vault-integration).
 - **Managed Identity**: User-assigned identity per Web App for Azure service authentication (no secrets in config)
-- **RBAC**: Role assignments (AcrPull for container registry, Key Vault access for secrets)
+- **RBAC**: Role assignments (AcrPull for container registry) and Key Vault access policies for secrets
 - **TLS**: 1.3 only, in every environment. The `webapp` module defaults `minimum_tls_version` to `"1.3"` and its validation block accepts no other value, so no caller can weaken the floor to 1.2. The floor covers the Web App, the deployment slot, and both SCM (Kudu) endpoints, whose provider default would otherwise be 1.2. Production passes the value explicitly as documentation of intent; dev and staging inherit the same default. `scripts/verify.sh` re-asserts `minTlsVersion` and `scmMinTlsVersion` = 1.3 against the deployed app in all three environments. One documented exception: the flow-log storage account sits at `TLS1_2` because Azure Storage's `minimumTlsVersion` offers no 1.3 value — its only client is Microsoft's own flow-log writer.
 
 ### Compliance
@@ -249,15 +261,27 @@ pipeline.
 
 ### Key Vault Integration
 
-Optional integration for storing & referencing secrets:
+Each environment owns a Key Vault, `kv-<app_name>-<env>`, created by the
+`keyvault` module. The template seeds the authentication credentials into it;
+application secrets go into the same vault and reach the container as
+environment variables through `key_vault_secrets`, which maps a setting name
+to a secret name:
 
 ```hcl
-key_vault_id = "/subscriptions/.../resourceGroups/.../providers/Microsoft.KeyVault/vaults/myvault"
 key_vault_secrets = {
   DB_PASSWORD = "db-password-secret-name"
   API_TOKEN   = "api-token-secret-name"
 }
 ```
+
+The secrets themselves are created outside Terraform (portal, `az keyvault
+secret set`, or the deployment pipeline); the Web App resolves the references
+with its user-assigned identity, which the template grants `Get`/`List` on the
+vault through an access policy. The vault uses access policies rather than
+Azure RBAC and keeps its data plane on the public endpoint, because Terraform
+seeds secrets from GitHub-hosted runners outside the VNet; authorisation is
+the control. Purge protection is enabled in prod only (see
+[Environment-Specific Baselines](#environment-specific-baselines)).
 
 ### Container Registry
 
@@ -274,8 +298,14 @@ is selected by what you provide:
 ```hcl
 container_registry_url                 = "myregistry.azurecr.io"
 container_registry_resource_group_name = "rg-shared-registries"
-container_image                        = "myregistry.azurecr.io/myapp:v1.2.3"
+container_image                        = "myapp:v1.2.3"
 ```
+
+`container_image` is the repository path and tag **without the registry host**;
+the template prepends `container_registry_url` when composing the image
+reference. Passing `myregistry.azurecr.io/myapp:v1.2.3` here produces
+`myregistry.azurecr.io/myregistry.azurecr.io/myapp:v1.2.3`, which no registry
+serves.
 
 Granting `AcrPull` requires locating the registry, so
 `container_registry_resource_group_name` names the resource group the ACR
@@ -306,6 +336,35 @@ this template to provision, bind, or renew** — TLS works out of the box in all
 three environments, and nothing expires under your ownership. This is the
 configuration the template is built and verified against; the template
 deliberately has no custom-domain input.
+
+### Authentication
+
+Every environment enforces Microsoft Entra ID sign-in through App Service
+authentication, on the Web App and on its deployment slot. Unauthenticated
+browsers are redirected to sign in; the health check path stays open for
+external monitors (the platform probe authenticates itself). Access is by
+assignment: the enterprise application `app-<app_name>-<env>` requires it,
+and only people assigned to its `User` role get in. Terraform sets that gate
+and never manages the people; the app's owners (`auth_admins`, plus the
+deployer) assign and remove users in the portal or with the
+`manage-app-access.sh` helper, so onboarding is never an apply. External
+people are invited to the tenant as guests first. Self-registration is
+deliberately not offered. One exemption is Entra's own: Global Administrators
+are never subject to the assignment requirement.
+
+For non-interactive callers the template creates one confidential client per
+environment, `app-<app_name>-<env>-e2e`, and stores its tenant, client ID,
+client secret and scope in the environment's Key Vault as `e2e-*` secrets. An
+end-to-end test obtains a token with the client-credentials grant and sends it
+as a bearer token; `scripts/verify.sh` does exactly that against dev.
+
+Inputs: `auth_enabled` (default `true`) switches the whole feature and
+`auth_admins` names the owners; the module also accepts
+`auth_unauthenticated_action` (`Return401` for pure APIs) and
+`auth_excluded_paths`. The identity running Terraform needs Microsoft
+Graph permissions to create the registrations and the test client's role
+assignment. The full design, the permission list and the token flow are in
+[docs/AUTHENTICATION.md](docs/AUTHENTICATION.md).
 
 ---
 
@@ -420,7 +479,7 @@ tofu -chdir=terraform/environments/$ENVIRONMENT plan \
   -var="subscription_id=$AZURE_SUBSCRIPTION_ID" \
   -var="location=$AZURE_LOCATION" \
   -var="app_name=$APP_NAME" \
-  -var="container_image=mcr.microsoft.com/azuredocs/aci-helloworld:latest" \
+  -var="container_image=azuredocs/aci-helloworld:latest" \
   -var="container_registry_url=mcr.microsoft.com" \
   -var="health_check_path=/" \
   -var="container_port=80" \
@@ -428,11 +487,16 @@ tofu -chdir=terraform/environments/$ENVIRONMENT plan \
 ```
 
 This plan for `dev` deploys a public placeholder image
-(`mcr.microsoft.com/azuredocs/aci-helloworld`) with `health_check_path = "/"` and
+(`azuredocs/aci-helloworld` from `mcr.microsoft.com`) with `health_check_path = "/"` and
 `container_port = 80`, so the template can be applied and verified end to end before
 a real application image exists. Swap `container_image`, `container_registry_url`,
 `health_check_path`, and `container_port` for your own app's values when moving past
 validation — real apps follow the contract: port 8080, health endpoint `/health`.
+
+With authentication on (the default), opening the placeholder in a browser
+redirects to Microsoft Entra sign-in; only a user assigned to the enterprise
+application `app-<app_name>-<env>` gets through, so assign yourself first
+(see [Authentication](#authentication)).
 
 Review the plan output before applying — confirm the region for resources is the
 one you intended, and that the resource count matches expectations for the
@@ -463,7 +527,7 @@ tofu -chdir=terraform/environments/$ENVIRONMENT destroy \
   -var="subscription_id=$AZURE_SUBSCRIPTION_ID" \
   -var="location=$AZURE_LOCATION" \
   -var="app_name=$APP_NAME" \
-  -var="container_image=mcr.microsoft.com/azuredocs/aci-helloworld:latest" \
+  -var="container_image=azuredocs/aci-helloworld:latest" \
   -var="container_registry_url=mcr.microsoft.com" \
   -var="health_check_path=/" \
   -var="container_port=80"

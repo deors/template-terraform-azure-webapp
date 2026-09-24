@@ -13,5 +13,11 @@ terraform {
       source  = "Azure/azapi"
       version = "~> 2.0"
     }
+    # azuread creates the Entra app registrations behind App Service
+    # authentication and the end-to-end test client.
+    azuread = {
+      source  = "hashicorp/azuread"
+      version = "~> 3.0"
+    }
   }
 }

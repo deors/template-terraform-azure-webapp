@@ -70,3 +70,13 @@ output "staging_slot_hostname" {
   description = "Hostname of the staging deployment slot (empty when not created)"
   value       = var.deployment_slot_enabled ? azurerm_linux_web_app_slot.staging[0].default_hostname : ""
 }
+
+output "auth_client_id" {
+  description = "Client ID of the app registration behind App Service authentication (empty when disabled)"
+  value       = local.auth_client_id
+}
+
+output "e2e_client_id" {
+  description = "Client ID of the end-to-end test client (empty when authentication is disabled); its secret is in the vault as e2e-client-secret"
+  value       = local.e2e_client_id
+}

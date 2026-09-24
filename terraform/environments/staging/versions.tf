@@ -13,6 +13,12 @@ terraform {
       source  = "Azure/azapi"
       version = "~> 2.0"
     }
+    # azuread manages the Entra app registrations behind App Service
+    # authentication. Authenticates like azurerm (az login locally, OIDC in CI).
+    azuread = {
+      source  = "hashicorp/azuread"
+      version = "~> 3.0"
+    }
   }
 
   # All other backend values are injected at init time via -backend-config flags.
@@ -42,3 +48,5 @@ provider "azurerm" {
 provider "azapi" {
   subscription_id = var.subscription_id
 }
+
+provider "azuread" {}

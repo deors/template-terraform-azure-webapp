@@ -22,3 +22,18 @@ output "private_endpoint_ip" {
   description = "Private IP address the Private Endpoint resolves to inside the VNet"
   value       = module.webapp.private_endpoint_ip
 }
+
+output "key_vault_name" {
+  description = "Name of the environment's Key Vault, holding the authentication and end-to-end test credentials"
+  value       = module.keyvault.name
+}
+
+output "auth_client_id" {
+  description = "Client ID of the Entra app registration users sign in to; assign users or groups to its enterprise application to grant access"
+  value       = module.webapp.auth_client_id
+}
+
+output "e2e_client_id" {
+  description = "Client ID of the end-to-end test client; its secret and scope are in the Key Vault (e2e-client-secret, e2e-scope)"
+  value       = module.webapp.e2e_client_id
+}

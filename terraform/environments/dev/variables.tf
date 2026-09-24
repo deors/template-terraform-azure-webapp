@@ -60,3 +60,21 @@ variable "app_settings" {
   type        = map(string)
   default     = {}
 }
+
+variable "key_vault_secrets" {
+  description = "App settings resolved from the environment's Key Vault, setting name => secret name. The secrets themselves are created outside Terraform (portal, az cli, pipeline)."
+  type        = map(string)
+  default     = {}
+}
+
+variable "auth_admins" {
+  description = "Owners of this environment's enterprise application (user principal names or object IDs); they assign and remove users in the portal. Empty means directory administrators only."
+  type        = list(string)
+  default     = []
+}
+
+variable "auth_enabled" {
+  description = "Enforce Microsoft Entra ID sign-in on the Web App (App Service authentication). On by default; only assigned users, groups and the end-to-end test client can access the app."
+  type        = bool
+  default     = true
+}

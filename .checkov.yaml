@@ -18,10 +18,6 @@ skip-check:
   - CKV_AZURE_88   # "Ensure App Service uses Azure Files": containers are stateless; no persistent mount needed
 
   # ── Application-layer concerns, not owned by this infrastructure template ───
-  - CKV_AZURE_13   # App Service Authentication (Easy Auth): authentication is owned by the
-                   # application, which brings its own identity provider and token handling.
-                   # Enforcing Easy Auth at the platform layer would break any app that
-                   # authenticates itself, and the template has no IdP configuration input.
   - CKV_AZURE_17   # Client certificates (mTLS): inbound traffic arrives through the Private
                    # Endpoint from inside the VNet (staging/prod) or from GitHub-hosted
                    # runners during dev smoke tests. Neither path presents a client
@@ -35,3 +31,5 @@ skip-check:
   #   CKV_AZURE_222 — public network access disabled (dev keeps public open
   #                   for HTTP smoke tests from GitHub-hosted runners)
   #   CKV_AZURE_225 — zone redundancy (only prod is zone-redundant)
+  #   CKV_AZURE_42 / CKV_AZURE_110 — Key Vault purge protection (dev/staging
+  #                   vaults are torn down and recreated freely; prod enables it)

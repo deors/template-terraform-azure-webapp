@@ -108,6 +108,12 @@ variable "app_settings" {
   default     = {}
 }
 
+variable "key_vault_enabled" {
+  description = "Whether key_vault_id is set. A separate flag because the vault ID is usually computed in the same apply, and count needs a value known at plan time."
+  type        = bool
+  default     = false
+}
+
 variable "key_vault_id" {
   description = "ID of the Key Vault where secrets are stored"
   type        = string
@@ -251,4 +257,34 @@ variable "health_check_eviction_time_in_min" {
   description = "Time in minutes before an unhealthy instance is evicted"
   type        = number
   default     = 10
+}
+
+# Authentication
+variable "auth_enabled" {
+  description = "Front the Web App and its slot with App Service authentication (Microsoft Entra ID). Creates the app registration, an end-to-end test client, and stores their secrets in the vault given by key_vault_id, which is then required."
+  type        = bool
+  default     = false
+}
+
+variable "auth_unauthenticated_action" {
+  description = "What an unauthenticated request gets: RedirectToLoginPage (browsers) or Return401 (pure APIs). Health check and auth_excluded_paths are exempt either way."
+  type        = string
+  default     = "RedirectToLoginPage"
+
+  validation {
+    condition     = contains(["RedirectToLoginPage", "Return401"], var.auth_unauthenticated_action)
+    error_message = "auth_unauthenticated_action must be RedirectToLoginPage or Return401."
+  }
+}
+
+variable "auth_admins" {
+  description = "People who administer access to this environment's app, as user principal names or object IDs. They become owners of the enterprise application, which lets them assign and remove users in the portal without any directory role. Resolving names needs User.Read.All on the identity running Terraform."
+  type        = list(string)
+  default     = []
+}
+
+variable "auth_excluded_paths" {
+  description = "Paths served without authentication, in addition to health_check_path"
+  type        = list(string)
+  default     = []
 }

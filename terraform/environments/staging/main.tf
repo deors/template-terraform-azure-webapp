@@ -58,6 +58,21 @@ module "networking" {
 }
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Key Vault (application secrets, authentication credentials)
+# ──────────────────────────────────────────────────────────────────────────────
+module "keyvault" {
+  source = "../../modules/keyvault"
+
+  name                = var.app_name
+  resource_group_name = azurerm_resource_group.this.name
+  location            = var.location
+  environment         = local.environment
+  tags                = local.common_tags
+
+  purge_protection_enabled = false
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Web App
 # ──────────────────────────────────────────────────────────────────────────────
 module "webapp" {
@@ -85,6 +100,17 @@ module "webapp" {
 
   container_port = var.container_port
   app_settings   = var.app_settings
+
+  # Secrets: the environment's own vault; key_vault_secrets maps settings to it.
+  key_vault_enabled = true
+  key_vault_id      = module.keyvault.id
+  key_vault_secrets = var.key_vault_secrets
+
+  # Authentication: Entra ID sign-in enforced by App Service; access by
+  # assignment, managed by the app's owners; plus a non-interactive client
+  # for end-to-end tests.
+  auth_enabled = var.auth_enabled
+  auth_admins  = var.auth_admins
 
   # Networking – VNet integration + private endpoint, public endpoint closed.
   # Staging relies on control-plane validation rather than public HTTP smoke
