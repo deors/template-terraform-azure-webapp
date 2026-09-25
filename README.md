@@ -417,27 +417,23 @@ export APP_SHORT=$(echo "$APP_NAME" | tr -d '-' | cut -c1-12)
 export SUB_SHORT=$(echo "$AZURE_SUBSCRIPTION_ID" | tr -d '-' | cut -c1-8)
 ```
 
-To be able to authorize the access to the Azure Storage Account for Terraform state, the logged-in
-user must have **Storage Blob Data Contributor** role - **Owner** or **Contributor** is not enough:
-
-```bash
-az role assignment create \
-  --assignee $(az ad signed-in-user show --query id -o tsv) \
-  --role "Storage Blob Data Contributor" \
-  --scope $(az storage account show -n sttf${APP_SHORT}${SUB_SHORT} --query id -o tsv)
-```
-
 From the **workshop-platform-eng** repository:
 
 ```bash
 cd /path/to/workshop-platform-eng
 ./scripts/bootstrap-tfstate-azure.sh \
-  --subscription-id $AZURE_SUBSCRIPTION_ID \
+  --app-name $APP_NAME \
+  --azure-subscription-id $AZURE_SUBSCRIPTION_ID \
   --location $AZURE_LOCATION \
-  --app-name $APP_NAME
+  --principal-id $(az ad signed-in-user show --query id -o tsv)
 ```
 
-Creates a dedicated Azure Storage Account for remote state (idempotent).
+Creates a dedicated Azure Storage Account for remote state (idempotent). The
+script also grants **Storage Blob Data Contributor** on that account to the
+principal given in `--principal-id` — the state backend authenticates against
+the blob data plane, where **Owner** or **Contributor** is not enough — and
+detects whether that ID is a user, group or service principal;
+`--principal-type` overrides the detection.
 
 ### Step 2 — Security scan (Checkov)
 
