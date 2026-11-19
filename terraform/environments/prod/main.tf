@@ -4,7 +4,7 @@ locals {
   common_tags = {
     application = var.app_name
     environment = local.environment
-    managed-by  = "terraform"
+    managed-by  = "opentofu"
     platform    = "platform-engineering"
   }
 }

@@ -5,7 +5,7 @@ locals {
   # Merge caller tags with mandatory platform tags
   base_tags = merge(var.tags, {
     environment = var.environment
-    managed-by  = "terraform"
+    managed-by  = "opentofu"
     platform    = "platform-engineering"
   })
 
